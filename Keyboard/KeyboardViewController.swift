@@ -27,6 +27,7 @@ final class KeyboardViewController: UIInputViewController {
         model.onGlobe = { [weak self] in self?.advanceToNextInputMode() }
         model.insertTextHandler = { [weak self] text in self?.textDocumentProxy.insertText(text) }
         model.deleteBackwardHandler = { [weak self] in self?.textDocumentProxy.deleteBackward() }
+        model.dismissKeyboardHandler = { [weak self] in self?.dismissKeyboard() }
         self.model = model
 
         let panel = UIHostingController(rootView: VoicePanelView(model: model).tint(Color.appAccent))

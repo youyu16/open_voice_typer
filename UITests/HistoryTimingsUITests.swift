@@ -14,7 +14,7 @@ final class HistoryTimingsUITests: XCTestCase {
         app.launchArguments = ["--skip-onboarding", "--seed-timed-history", "--timings-off"]
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Settings"].waitForExistence(timeout: 15), "no tabs")
+        XCTAssertTrue(app.tabButton("Settings").waitForExistence(timeout: 15), "no tabs")
 
         // Off by default: the seeded dictation shows its metadata but no times.
         openSeededDictation(in: app)
@@ -26,7 +26,7 @@ final class HistoryTimingsUITests: XCTestCase {
 
         // Turn it on. Diagnostics sits below the provider sections, so the
         // Form starts scrolled above it.
-        app.tabBars.buttons["Settings"].tap()
+        app.tabButton("Settings").tap()
         let toggle = app.switches["Show timings in History"]
         // Scroll until it is actually *hittable*, not merely present — the
         // last row can exist while sitting under the tab bar, where a tap
@@ -52,7 +52,7 @@ final class HistoryTimingsUITests: XCTestCase {
         app.terminate()
         app.launchArguments = ["--skip-onboarding", "--seed-timed-history"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["History"].waitForExistence(timeout: 15), "no tabs")
+        XCTAssertTrue(app.tabButton("History").waitForExistence(timeout: 15), "no tabs")
 
         // Now the same dictation explains where its time went.
         openSeededDictation(in: app)
@@ -71,7 +71,7 @@ final class HistoryTimingsUITests: XCTestCase {
 
     @MainActor
     private func openSeededDictation(in app: XCUIApplication) {
-        app.tabBars.buttons["History"].tap()
+        app.tabButton("History").tap()
         let entry = app.buttons.containing(.staticText, identifier: "Hello there.").firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "seeded dictation missing from History")
         entry.tap()
