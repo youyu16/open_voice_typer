@@ -21,9 +21,7 @@ final class PipelineE2ETests: XCTestCase {
         StubURLProtocol.reset()
         SettingsStore.save(savedSettings)
         SharedCatalog.saveDictionary(savedDictionary)
-        KeychainStore.delete(.asrAPIKey)
-        KeychainStore.delete(.polishOpenAIKey)
-        KeychainStore.delete(.polishDeepSeekKey)
+        KeychainStore.Key.allCases.forEach(KeychainStore.delete)
         super.tearDown()
     }
 
@@ -108,6 +106,48 @@ final class PipelineE2ETests: XCTestCase {
         let polished = try await pipeline.polishOnly(rawText: "um hello", style: .light)
         XCTAssertEqual(polished, "Polished by DeepSeek.")
         XCTAssertEqual(pipeline.polishEngineName, "deepseek-v4-pro")
+    }
+
+    /// Every fixed-endpoint backend must reach its own host carrying its own
+    /// key. The registry makes adding a provider a six-line declaration, which
+    /// is only safe if a wrong key slot or endpoint can't slip through — so
+    /// this loops the registry rather than naming providers, and a new one is
+    /// covered the moment it is declared.
+    func testEveryFixedEndpointBackendUsesItsOwnHostAndKey() async throws {
+        for spec in PolishBackendSpec.all where !spec.hasConfigurableBaseURL {
+            var settings = ProviderSettings()
+            settings.polishBackend = spec.backend
+
+            // The backend under test gets the real key; every other slot gets
+            // a decoy, so reaching for the wrong one is caught rather than
+            // silently working because both slots held the same value.
+            let expectedKey = "sk-\(spec.backend.rawValue)-real"
+            for key in KeychainStore.Key.allCases {
+                KeychainStore.set(key == spec.keychainKey ? expectedKey : "sk-decoy", for: key)
+            }
+
+            let host = try XCTUnwrap(
+                spec.makeVerifyTarget(settings).origin?.host(),
+                "\(spec.backend) has no endpoint host"
+            )
+            StubURLProtocol.reset()
+            StubURLProtocol.stub(host: host) { request, _ in
+                let credential = request.value(forHTTPHeaderField: "Authorization")?
+                    .replacingOccurrences(of: "Bearer ", with: "")
+                    ?? request.value(forHTTPHeaderField: "x-api-key")
+                    ?? request.value(forHTTPHeaderField: "x-goog-api-key")
+                XCTAssertEqual(credential, expectedKey, "\(spec.backend) sent the wrong key")
+                return .init(body: Data("""
+                {"choices":[{"message":{"content":"ok"}}],\
+                "content":[{"type":"text","text":"ok"}],\
+                "candidates":[{"content":{"parts":[{"text":"ok"}]}}]}
+                """.utf8))
+            }
+
+            let polished = try await DictationPipeline(settings: settings)
+                .polishOnly(rawText: "um hello", style: .light)
+            XCTAssertEqual(polished, "ok", "\(spec.backend) did not come back with a transcript")
+        }
     }
 
     private func fixtureWAV() throws -> Data {

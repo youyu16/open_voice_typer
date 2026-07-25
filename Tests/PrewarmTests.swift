@@ -58,6 +58,10 @@ final class PrewarmTests: XCTestCase {
             .deepseek: "api.deepseek.com",
             .anthropic: "api.anthropic.com",
             .gemini: "generativelanguage.googleapis.com",
+            .groq: "api.groq.com",
+            .openRouter: "openrouter.ai",
+            .xai: "api.x.ai",
+            .mistral: "api.mistral.ai",
         ]
         for spec in PolishBackendSpec.all {
             XCTAssertEqual(

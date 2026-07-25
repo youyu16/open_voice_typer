@@ -49,21 +49,45 @@ extension PolishBackendSpec {
             },
             makeVerifyTarget: { .openAICompatible(baseURL: $0.polishBaseURL) }
         ),
-        PolishBackendSpec(
-            backend: .deepseek,
-            keychainKey: .polishDeepSeekKey,
-            modelKeyPath: \.deepseekModel,
-            baseURLKeyPath: nil,
-            presetModels: ProviderSettings.deepseekModels,
-            makeGetKeyURL: { _ in "https://platform.deepseek.com/api_keys" },
-            makeProvider: { settings in
-                OpenAICompatibleLLM(
-                    baseURL: ProviderSettings.deepseekBaseURL,
-                    model: settings.deepseekModel,
-                    apiKey: { KeychainStore.get(.polishDeepSeekKey) }
-                )
-            },
-            makeVerifyTarget: { _ in .openAICompatible(baseURL: ProviderSettings.deepseekBaseURL) }
+        .hosted(
+            .deepseek,
+            key: .polishDeepSeekKey,
+            model: \.deepseekModel,
+            baseURL: "https://api.deepseek.com/v1",
+            models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+            console: "https://platform.deepseek.com/api_keys"
+        ),
+        .hosted(
+            .groq,
+            key: .polishGroqKey,
+            model: \.groqModel,
+            baseURL: "https://api.groq.com/openai/v1",
+            models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+            console: "https://console.groq.com/keys"
+        ),
+        .hosted(
+            .openRouter,
+            key: .polishOpenRouterKey,
+            model: \.openRouterModel,
+            baseURL: "https://openrouter.ai/api/v1",
+            models: ["openai/gpt-4o-mini", "google/gemini-2.5-flash", "meta-llama/llama-3.3-70b-instruct"],
+            console: "https://openrouter.ai/keys"
+        ),
+        .hosted(
+            .xai,
+            key: .polishXAIKey,
+            model: \.xaiModel,
+            baseURL: "https://api.x.ai/v1",
+            models: ["grok-4-fast", "grok-3-mini"],
+            console: "https://console.x.ai"
+        ),
+        .hosted(
+            .mistral,
+            key: .polishMistralKey,
+            model: \.mistralModel,
+            baseURL: "https://api.mistral.ai/v1",
+            models: ["mistral-small-latest", "mistral-medium-latest", "ministral-8b-latest"],
+            console: "https://console.mistral.ai/api-keys"
         ),
         PolishBackendSpec(
             backend: .anthropic,
@@ -97,6 +121,46 @@ extension PolishBackendSpec {
         ),
     ]
 
+    /// A branded OpenAI-compatible backend. Most providers are exactly this:
+    /// the same client and the same key verification, differing only in
+    /// endpoint, key slot, model field and where you go to get a key — so they
+    /// are *declared* rather than written out, and adding the next one is six
+    /// lines of fact with no new code paths to review.
+    ///
+    /// The endpoint and its model shortlist live here rather than in
+    /// `ProviderSettings`: they are facts about the provider, not choices the
+    /// user has made.
+    static func hosted(
+        _ backend: ProviderSettings.PolishBackend,
+        key: KeychainStore.Key,
+        model: WritableKeyPath<ProviderSettings, String>,
+        baseURL: String,
+        models: [String] = [],
+        console: String
+    ) -> PolishBackendSpec {
+        // Same reasoning as the type's `@unchecked Sendable`: a key path is an
+        // immutable value-semantics descriptor, safe to read from any thread.
+        nonisolated(unsafe) let modelPath = model
+        return PolishBackendSpec(
+            backend: backend,
+            keychainKey: key,
+            modelKeyPath: model,
+            // Fixed endpoint: nothing for the user to configure, and nothing
+            // for a base-URL preset to overwrite.
+            baseURLKeyPath: nil,
+            presetModels: models,
+            makeGetKeyURL: { _ in console },
+            makeProvider: { settings in
+                OpenAICompatibleLLM(
+                    baseURL: baseURL,
+                    model: settings[keyPath: modelPath],
+                    apiKey: { KeychainStore.get(key) }
+                )
+            },
+            makeVerifyTarget: { _ in .openAICompatible(baseURL: baseURL) }
+        )
+    }
+
     static func `for`(_ backend: ProviderSettings.PolishBackend) -> PolishBackendSpec {
         // Force-unwrap is intentional: a missing spec is a wiring bug that
         // `PolishBackendSpecTests` catches immediately.
@@ -112,6 +176,12 @@ enum ProviderConsole {
         if host.contains("openai.com") { return "https://platform.openai.com/api-keys" }
         if host.contains("groq.com") { return "https://console.groq.com/keys" }
         if host.contains("deepseek.com") { return "https://platform.deepseek.com/api_keys" }
+        if host.contains("openrouter.ai") { return "https://openrouter.ai/keys" }
+        if host.contains("mistral.ai") { return "https://console.mistral.ai/api-keys" }
+        if host.contains("x.ai") { return "https://console.x.ai" }
+        if host.contains("cerebras.ai") { return "https://cloud.cerebras.ai" }
+        if host.contains("together.xyz") { return "https://api.together.xyz/settings/api-keys" }
+        if host.contains("fireworks.ai") { return "https://fireworks.ai/account/api-keys" }
         if host.contains("z.ai") { return "https://z.ai/manage-apikey/apikey-list" }
         if host.contains("bigmodel.cn") { return "https://open.bigmodel.cn/usercenter/apikeys" }
         return nil

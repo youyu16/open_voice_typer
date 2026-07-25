@@ -12,6 +12,10 @@ enum KeychainStore {
         case polishDeepSeekKey = "polish.deepseek.apiKey"
         case polishAnthropicKey = "polish.anthropic.apiKey"
         case polishGeminiKey = "polish.gemini.apiKey"
+        case polishGroqKey = "polish.groq.apiKey"
+        case polishOpenRouterKey = "polish.openrouter.apiKey"
+        case polishXAIKey = "polish.xai.apiKey"
+        case polishMistralKey = "polish.mistral.apiKey"
     }
 
     static func set(_ value: String, for key: Key) {

@@ -16,18 +16,28 @@ struct ProviderSettings: Codable, Equatable, Sendable {
         }
     }
 
+    /// Order here is the order of the Settings picker. Raw values are what get
+    /// persisted, so they must never change; the ordering is free to.
     enum PolishBackend: String, Codable, CaseIterable, Sendable {
         case openAICompatible
-        case deepseek
         case anthropic
         case gemini
+        case groq
+        case openRouter
+        case deepseek
+        case xai
+        case mistral
 
         var displayName: String {
             switch self {
             case .openAICompatible: "OpenAI-compatible"
-            case .deepseek: "DeepSeek"
             case .anthropic: "Anthropic"
             case .gemini: "Google Gemini"
+            case .groq: "Groq"
+            case .openRouter: "OpenRouter"
+            case .deepseek: "DeepSeek"
+            case .xai: "xAI (Grok)"
+            case .mistral: "Mistral"
             }
         }
     }
@@ -41,13 +51,16 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     var polishBackend: PolishBackend = .openAICompatible
     var polishBaseURL: String = "https://api.openai.com/v1"
     var polishModel: String = "gpt-4o-mini"
+    /// One model field per fixed-endpoint backend, so switching providers
+    /// keeps each one's model (and, with its own Keychain slot, its key) —
+    /// you can flip between them without re-entering anything.
     var deepseekModel: String = "deepseek-v4-flash"
     var anthropicModel: String = "claude-sonnet-5"
     var geminiModel: String = "gemini-2.5-flash"
-
-    /// DeepSeek is a fixed, known endpoint — no base URL to configure.
-    static let deepseekBaseURL = "https://api.deepseek.com/v1"
-    static let deepseekModels = ["deepseek-v4-flash", "deepseek-v4-pro"]
+    var groqModel: String = "llama-3.3-70b-versatile"
+    var openRouterModel: String = "openai/gpt-4o-mini"
+    var xaiModel: String = "grok-4-fast"
+    var mistralModel: String = "mistral-small-latest"
 
     var selectedStyleID: String = Style.light.id
     /// The template to return to when the keyboard's Dictate/Translate toggle
@@ -92,6 +105,10 @@ struct ProviderSettings: Codable, Equatable, Sendable {
         deepseekModel = try c.decodeIfPresent(String.self, forKey: .deepseekModel) ?? defaults.deepseekModel
         anthropicModel = try c.decodeIfPresent(String.self, forKey: .anthropicModel) ?? defaults.anthropicModel
         geminiModel = try c.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
+        groqModel = try c.decodeIfPresent(String.self, forKey: .groqModel) ?? defaults.groqModel
+        openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? defaults.openRouterModel
+        xaiModel = try c.decodeIfPresent(String.self, forKey: .xaiModel) ?? defaults.xaiModel
+        mistralModel = try c.decodeIfPresent(String.self, forKey: .mistralModel) ?? defaults.mistralModel
         selectedStyleID = try c.decodeIfPresent(String.self, forKey: .selectedStyleID) ?? defaults.selectedStyleID
         lastDictateStyleID = try c.decodeIfPresent(String.self, forKey: .lastDictateStyleID) ?? defaults.lastDictateStyleID
         let decodedLanguage = try c.decodeIfPresent(String.self, forKey: .targetLanguage) ?? defaults.targetLanguage
@@ -112,15 +129,22 @@ struct ProviderPreset: Identifiable {
     static let asr: [ProviderPreset] = [
         .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-transcribe"),
         .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo"),
+        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-latest"),
+        .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "whisper-v3-turbo"),
         .init(name: "Zhipu GLM (International)", baseURL: "https://api.z.ai/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Zhipu GLM (China)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-asr-2512"),
+        .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "whisper-1"),
     ]
 
-    // DeepSeek is not listed here — it is a first-class PolishBackend with
-    // its own key slot, not a base-URL preset.
+    /// Only for providers that are *not* first-class backends — anything with
+    /// its own `PolishBackendSpec` has its own key slot and model field, which
+    /// a base-URL preset would quietly bypass.
     static let polish: [ProviderPreset] = [
         .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
-        .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile"),
+        .init(name: "Cerebras", baseURL: "https://api.cerebras.ai/v1", model: "llama3.1-8b"),
+        .init(name: "Together", baseURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "accounts/fireworks/models/llama-v3p3-70b-instruct"),
+        .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "local-model"),
     ]
 }
 

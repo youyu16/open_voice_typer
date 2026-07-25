@@ -15,8 +15,11 @@ final class SettingsSnapshotUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Polish"].waitForExistence(timeout: 10), "Polish section missing")
 
-        // The polish provider picker should exist and the section render its
-        // model row for the default (OpenAI-compatible) provider.
+        // Settings persist between runs, so pin speech-to-text to on-device:
+        // its cloud rows are labelled the same as polish's ("Model", "API
+        // Key", "Base URL") and would make the assertions below ambiguous.
+        app.buttons["On-device"].tap()
+
         XCTAssertTrue(app.staticTexts["Model"].firstMatch.waitForExistence(timeout: 5),
                       "polish Model row missing")
 
@@ -24,5 +27,36 @@ final class SettingsSnapshotUITests: XCTestCase {
         shot.name = "settings-polish"
         shot.lifetime = .keepAlways
         add(shot)
+
+        // Every registered backend must be offered. The section is generated
+        // from `PolishBackendSpec`, so a provider that is declared but never
+        // reaches the picker is exactly the failure this catches. The picker
+        // is a menu button labelled "Provider, <current selection>".
+        app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH 'Provider,'"))
+            .firstMatch
+            .tap()
+        for name in ["OpenAI-compatible", "Anthropic", "Google Gemini", "Groq",
+                     "OpenRouter", "DeepSeek", "xAI (Grok)", "Mistral"] {
+            XCTAssertTrue(
+                app.buttons[name].waitForExistence(timeout: 5),
+                "\(name) is missing from the polish provider picker"
+            )
+        }
+
+        let picker = XCTAttachment(screenshot: app.screenshot())
+        picker.name = "settings-polish-providers"
+        picker.lifetime = .keepAlways
+        add(picker)
+
+        // Pick a newly added one and prove its rows render: a fixed-endpoint
+        // backend shows Model and API Key, and offers no Base URL to edit.
+        app.buttons["Mistral"].tap()
+        XCTAssertTrue(app.staticTexts["Model"].firstMatch.waitForExistence(timeout: 5),
+                      "Mistral has no Model row")
+        XCTAssertTrue(app.staticTexts["API Key"].firstMatch.waitForExistence(timeout: 5),
+                      "Mistral has no API Key row")
+        XCTAssertFalse(app.staticTexts["Base URL"].exists,
+                       "a fixed-endpoint backend must not offer a Base URL field")
     }
 }
