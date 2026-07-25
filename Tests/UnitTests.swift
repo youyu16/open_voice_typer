@@ -195,6 +195,20 @@ final class PolishBackendSpecTests: XCTestCase {
         XCTAssertEqual(Set(models).count, models.count, "a model field is shared between backends")
     }
 
+    /// Model IDs go stale — providers retire them on a few months' notice. The
+    /// default and the quick-pick list are edited in different files, so this
+    /// keeps them from drifting apart: whatever a backend ships as its default
+    /// must be an ID that backend still offers.
+    func testEveryDefaultModelIsOfferedByItsOwnBackend() {
+        let defaults = ProviderSettings()
+        for spec in PolishBackendSpec.all where !spec.presetModels.isEmpty {
+            XCTAssertTrue(
+                spec.presetModels.contains(spec.model(in: defaults)),
+                "\(spec.backend) defaults to \(spec.model(in: defaults)), which is not in its own model list"
+            )
+        }
+    }
+
     func testEveryBackendPointsSomewhereToGetAKey() {
         for spec in PolishBackendSpec.all {
             let url = spec.makeGetKeyURL(ProviderSettings()).flatMap(URL.init(string:))

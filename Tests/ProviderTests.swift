@@ -63,14 +63,33 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(output, "Hello there.")
     }
 
-    /// Polish reshapes a transcript, it never reasons about one — and Gemini's
-    /// Flash models think by default, which puts seconds between the user
-    /// finishing a sentence and seeing it typed.
-    func testGeminiFlashPolishSpendsNothingOnThinking() async throws {
+    /// Polish reshapes a transcript, it never reasons about one — and Gemini
+    /// thinks by default, which puts seconds between the user finishing a
+    /// sentence and seeing it typed. Gemini 3.x spells the off-switch
+    /// `thinking_level`; the 2.5-era `thinking_budget` no longer exists there,
+    /// so sending it would silently leave thinking on.
+    func testGemini3PolishSpendsNothingOnThinking() async throws {
         StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
             let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
-            let thinking = (json["generationConfig"] as? [String: Any])?["thinkingConfig"] as? [String: Any]
-            XCTAssertEqual(thinking?["thinkingBudget"] as? Int, 0)
+            let config = json["generation_config"] as? [String: Any]
+            XCTAssertEqual(config?["thinking_level"] as? String, "minimal")
+            XCTAssertNil(config?["thinking_config"], "thinking_budget is a 2.5-only field")
+            return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
+        }
+        let provider = GeminiLLM(model: "gemini-3.5-flash-lite", apiKey: { "sk-gem" }, session: session)
+        let output = try await provider.polish(request)
+        XCTAssertEqual(output, "Hello there.")
+    }
+
+    /// The 2.5 generation still takes a zero token budget — a user who pinned
+    /// an older model must keep the same latency win.
+    func testGemini25FlashStillUsesTheTokenBudgetDialect() async throws {
+        StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
+            let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            let config = json["generation_config"] as? [String: Any]
+            let thinking = config?["thinking_config"] as? [String: Any]
+            XCTAssertEqual(thinking?["thinking_budget"] as? Int, 0)
+            XCTAssertNil(config?["thinking_level"], "thinking_level is a 3.x-only field")
             return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
         }
         let provider = GeminiLLM(model: "gemini-2.5-flash", apiKey: { "sk-gem" }, session: session)
@@ -78,18 +97,26 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(output, "Hello there.")
     }
 
-    /// Pro models have a thinking floor and non-thinking models reject the
-    /// field outright, so the budget is only sent where it is known to be
-    /// accepted — a faster polish is not worth a 400.
+    /// 2.5 Pro has a thinking floor and the non-thinking models reject the
+    /// field outright, so an unrecognized model is left on its defaults — a
+    /// faster polish is not worth a 400.
     func testGeminiLeavesOtherModelsOnTheirDefaults() async throws {
         StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
             let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
-            XCTAssertNil(json["generationConfig"])
+            XCTAssertNil(json["generation_config"])
             return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
         }
         let provider = GeminiLLM(model: "gemini-2.5-pro", apiKey: { "sk-gem" }, session: session)
         let output = try await provider.polish(request)
         XCTAssertEqual(output, "Hello there.")
+    }
+
+    func testGeminiThinkingDialectIsChosenPerGeneration() {
+        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-3.6-flash"), .level("minimal"))
+        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-3.1-pro-preview"), .level("minimal"))
+        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-2.5-flash-lite"), .zeroBudget)
+        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-2.5-pro"), .unsupported)
+        XCTAssertEqual(GeminiLLM.thinkingControl(for: "some-future-model"), .unsupported)
     }
 
     // MARK: ElevenLabs Scribe
