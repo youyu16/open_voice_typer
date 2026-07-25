@@ -8,9 +8,15 @@ struct DictationPipeline: Sendable {
     struct Outcome: Sendable {
         var rawText: String
         var polishedText: String
-        /// Model that produced the final text ("on-device", "gpt-4o-mini", …).
+        /// Model that produced the final text ("on-device", "gpt-5.6-luna", …).
         var engineName: String
         var audioSeconds: Double
+        /// Wall-clock the user waited, by stage. `total` spans the whole run,
+        /// so it exceeds `asr + polish` by whatever the surrounding work cost.
+        /// `polish` is 0 when the style skipped it.
+        var totalMilliseconds: Int = 0
+        var asrMilliseconds: Int = 0
+        var polishMilliseconds: Int = 0
     }
 
     var settings: ProviderSettings
@@ -60,6 +66,10 @@ struct DictationPipeline: Sendable {
     }
 
     func run(wavData: Data, style: Style) async throws -> Outcome {
+        // Started before anything else so the total covers the whole wait, not
+        // just the two network hops — the parts should add up to what the user
+        // actually sat through.
+        let start = ContinuousClock.now
         let dictionary = SharedCatalog.loadDictionary().map(\.term)
         let seconds = Self.audioSeconds(ofWAV: wavData)
 
@@ -69,7 +79,17 @@ struct DictationPipeline: Sendable {
         // recording, the keyboard↔app bridge, and insertion all stay real.
         if let fake = ProcessInfo.processInfo.environment["OVT_FAKE_PIPELINE"] {
             try? await Task.sleep(for: .milliseconds(300))
-            return Outcome(rawText: fake, polishedText: fake, engineName: "uitest-fake", audioSeconds: seconds)
+            let elapsed = (ContinuousClock.now - start).milliseconds
+            return Outcome(
+                rawText: fake,
+                polishedText: fake,
+                engineName: "uitest-fake",
+                audioSeconds: seconds,
+                // Reported like the real path so the fake exercises History's
+                // timing readout instead of quietly bypassing it.
+                totalMilliseconds: elapsed,
+                asrMilliseconds: elapsed
+            )
         }
         #endif
 
@@ -89,14 +109,30 @@ struct DictationPipeline: Sendable {
 
         guard style.id != Style.raw.id else {
             Self.logStages(audio: seconds, asr: asrDuration, polish: nil)
-            return Outcome(rawText: raw, polishedText: raw, engineName: asrEngineName, audioSeconds: seconds)
+            return Outcome(
+                rawText: raw,
+                polishedText: raw,
+                engineName: asrEngineName,
+                audioSeconds: seconds,
+                totalMilliseconds: (ContinuousClock.now - start).milliseconds,
+                asrMilliseconds: asrDuration.milliseconds
+            )
         }
 
         let polishStart = ContinuousClock.now
         let polished = try await polish(rawText: raw, style: style, dictionary: dictionary)
-        Self.logStages(audio: seconds, asr: asrDuration, polish: ContinuousClock.now - polishStart)
+        let polishDuration = ContinuousClock.now - polishStart
+        Self.logStages(audio: seconds, asr: asrDuration, polish: polishDuration)
 
-        return Outcome(rawText: raw, polishedText: polished, engineName: polishEngineName, audioSeconds: seconds)
+        return Outcome(
+            rawText: raw,
+            polishedText: polished,
+            engineName: polishEngineName,
+            audioSeconds: seconds,
+            totalMilliseconds: (ContinuousClock.now - start).milliseconds,
+            asrMilliseconds: asrDuration.milliseconds,
+            polishMilliseconds: polishDuration.milliseconds
+        )
     }
 
     /// Reruns just the polish stage — used by History's Re-polish and the
@@ -169,7 +205,7 @@ struct DictationPipeline: Sendable {
     }
 }
 
-private extension Duration {
+extension Duration {
     var milliseconds: Int {
         Int(components.seconds) * 1_000 + Int(components.attoseconds / 1_000_000_000_000_000)
     }

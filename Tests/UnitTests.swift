@@ -155,6 +155,76 @@ final class PresetTests: XCTestCase {
     }
 }
 
+/// The latency readout History shows behind the Settings toggle.
+final class LatencyTests: XCTestCase {
+    func testAnUnmeasuredEntryHasNoLatencyToShow() {
+        // Entries saved before timings existed, and the template-editor
+        // preview path, carry zeros — History must show nothing rather than
+        // claim a 0 ms dictation.
+        let record = TranscriptRecord(rawText: "hi", polishedText: "Hi.", styleID: Style.light.id, source: .app)
+        XCTAssertNil(record.latency)
+    }
+
+    func testStagesAreListedInTheOrderTheyRan() {
+        let record = TranscriptRecord(
+            rawText: "hi", polishedText: "Hi.", styleID: Style.light.id, source: .keyboard,
+            totalMilliseconds: 2400, asrMilliseconds: 1500, polishMilliseconds: 800
+        )
+        let latency = try? XCTUnwrap(record.latency)
+        XCTAssertEqual(latency?.stages.map(\.name), ["Speech", "Polish"])
+        XCTAssertEqual(latency?.stages.map(\.milliseconds), [1500, 800])
+    }
+
+    /// The Raw template skips polish entirely. "Polish 0 ms" reads like a bug,
+    /// so the stage is omitted instead.
+    func testASkippedStageIsOmittedRatherThanShownAsZero() {
+        let record = TranscriptRecord(
+            rawText: "hi", polishedText: "hi", styleID: Style.raw.id, source: .keyboard,
+            totalMilliseconds: 1600, asrMilliseconds: 1500, polishMilliseconds: 0
+        )
+        XCTAssertEqual(record.latency?.stages.map(\.name), ["Speech"])
+    }
+
+    /// Whatever the stages don't account for is labelled, not hidden — the
+    /// parts have to add up to the total the user actually waited.
+    func testTheRemainderIsAccountedFor() {
+        let latency = TranscriptRecord.Latency(total: 2400, asr: 1500, polish: 800)
+        XCTAssertEqual(latency.otherMilliseconds, 100)
+
+        // Stage clocks are sampled separately, so rounding can overshoot the
+        // total. A negative "Other" must never surface.
+        let overshoot = TranscriptRecord.Latency(total: 1000, asr: 900, polish: 200)
+        XCTAssertEqual(overshoot.otherMilliseconds, 0)
+    }
+
+    func testDurationsReadAsPeopleSayThem() {
+        XCTAssertEqual(TranscriptRecord.Latency.format(milliseconds: 840), "840 ms")
+        XCTAssertEqual(TranscriptRecord.Latency.format(milliseconds: 999), "999 ms")
+        XCTAssertEqual(TranscriptRecord.Latency.format(milliseconds: 1000), "1.0 s")
+        XCTAssertEqual(TranscriptRecord.Latency.format(milliseconds: 12_340), "12.3 s")
+    }
+
+    func testTheTimingsPreferenceSurvivesASave() {
+        let saved = SettingsStore.load()
+        defer { SettingsStore.save(saved) }
+
+        var settings = ProviderSettings()
+        settings.showsTimings = true
+        SettingsStore.save(settings)
+        XCTAssertTrue(SettingsStore.load().showsTimings, "the preference did not round-trip through storage")
+    }
+
+    func testTimingsAreOffUntilAskedFor() {
+        XCTAssertFalse(ProviderSettings().showsTimings, "diagnostics should be opt-in")
+    }
+
+    func testOlderSettingsPayloadKeepsTimingsOff() throws {
+        let old = #"{"asrBackend":"apple","sessionAutoEndMinutes":60}"#
+        let settings = try JSONDecoder().decode(ProviderSettings.self, from: Data(old.utf8))
+        XCTAssertFalse(settings.showsTimings)
+    }
+}
+
 final class PolishBackendSpecTests: XCTestCase {
     func testRegistryHasExactlyOneSpecPerBackend() {
         XCTAssertEqual(

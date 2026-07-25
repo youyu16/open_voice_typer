@@ -18,6 +18,7 @@ struct ConfigurationView: View {
                 polishSection
                 sessionSection
                 translateSection
+                timingsSection
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -185,6 +186,16 @@ struct ConfigurationView: View {
             Text("Translate template")
         } footer: {
             Text("The Translate style rewrites your speech into this language.")
+        }
+    }
+
+    private var timingsSection: some View {
+        Section {
+            Toggle("Show timings in History", isOn: $settings.showsTimings)
+        } header: {
+            Text("Diagnostics")
+        } footer: {
+            Text("Breaks each dictation into speech, polish, and total time. Timings are always recorded, so turning this on also explains the dictations already in your History — useful for telling a slow provider from a slow connection.")
         }
     }
 
