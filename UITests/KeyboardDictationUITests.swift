@@ -55,7 +55,14 @@ final class KeyboardDictationUITests: XCTestCase {
             stop.waitForExistence(timeout: TimeInterval(5)),
             "recording never started — app did not acknowledge the start command"
         )
-        Thread.sleep(forTimeInterval: 1.5)
+        // Mid-recording: the mic key should be showing its live bars. Two
+        // shots a beat apart, because a single frame cannot show that the
+        // animation is actually running.
+        Thread.sleep(forTimeInterval: 0.5)
+        captureScreen(host, name: "recording-wave-1")
+        Thread.sleep(forTimeInterval: 0.5)
+        captureScreen(host, name: "recording-wave-2")
+        Thread.sleep(forTimeInterval: 0.5)
         stop.tap()
 
         // The polished text must land in the host app's field.

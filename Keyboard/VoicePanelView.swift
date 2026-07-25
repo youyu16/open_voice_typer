@@ -246,16 +246,32 @@ struct VoicePanelView: View {
                             : Color.appAccent.opacity(0.5),
                         radius: 11, y: 8
                     )
-                if model.phase == .processing {
+                switch model.phase {
+                case .processing:
                     ProgressView()
                         .tint(.white)
-                } else {
-                    Image(systemName: model.phase == .recording ? "stop.fill" : "mic.fill")
+                case .recording:
+                    // Stop square + live bars: the square keeps the tap's
+                    // meaning obvious while the bars carry the "still
+                    // listening" signal.
+                    HStack(spacing: 10) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white)
+                        RecordingWave(level: model.audioLevel)
+                    }
+                default:
+                    Image(systemName: "mic.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(.white)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
+            // The mic glyph used to cross-fade into the stop glyph via
+            // `.symbolEffect(.replace)`; now that recording swaps in a whole
+            // different view, the phase change needs its own animation or the
+            // key snaps.
+            .animation(.easeInOut(duration: 0.2), value: model.phase)
         }
         .buttonStyle(KeyPressStyle())
         .disabled(model.phase == .processing)
@@ -364,6 +380,61 @@ struct VoicePanelView: View {
         }
         // Clear the utility column so the copy never runs under it.
         .padding(.horizontal, utilityKeySide + 16)
+    }
+}
+
+/// The bars that travel across the mic key while it's recording.
+///
+/// The keyboard's only "we're still listening" cues used to be a red fill and
+/// an 8% scale nudge tied to `audioLevel` — both of which sit perfectly still
+/// when nobody is talking, so a session that had quietly died looked exactly
+/// like one waiting for speech. These bars always move.
+///
+/// Height is a travelling wave whose *amplitude* follows the mic, rather than
+/// a history meter like Home's: levels cross the App Group at ~7 Hz (the app
+/// throttles bridge writes to 0.15s), which is too coarse to scroll smoothly,
+/// and a phase that advances on its own keeps the key alive through silence
+/// and through a stalled bridge alike. Speech then pushes the swing to full.
+private struct RecordingWave: View {
+    let level: Float
+
+    private let barCount = 11
+    private let barWidth: CGFloat = 3
+    private let spacing: CGFloat = 3
+    private let minHeight: CGFloat = 4
+    private let maxHeight: CGFloat = 26
+
+    /// 30fps is plenty for eleven bars and keeps the cost off a keyboard
+    /// extension's much tighter budget.
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            HStack(spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    Capsule()
+                        .fill(.white)
+                        .frame(
+                            width: barWidth,
+                            height: height(
+                                index: index,
+                                time: context.date.timeIntervalSinceReferenceDate
+                            )
+                        )
+                }
+            }
+            .frame(height: maxHeight)
+        }
+        // The bars are decoration; "Stop and insert" on the button says it all.
+        .accessibilityHidden(true)
+    }
+
+    private func height(index: Int, time: TimeInterval) -> CGFloat {
+        // Two summed sines at unrelated rates, so the row never resolves into
+        // one obvious repeating sweep the eye can lock onto.
+        let phase = time * 3.4 - Double(index) * 0.55
+        let wobble = abs(sin(phase) + 0.5 * sin(phase * 0.6)) / 1.5
+        // A floor under the swing: silence still breathes, speech fills it.
+        let amplitude = 0.28 + 0.72 * Double(min(max(level, 0), 1))
+        return minHeight + CGFloat(wobble * amplitude) * (maxHeight - minHeight)
     }
 }
 
