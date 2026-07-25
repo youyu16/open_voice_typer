@@ -263,6 +263,13 @@ final class SessionController {
             activeCommand = command
             recorder.beginCapture()
             DictationBridge.publish(PipelineState(phase: .recording, commandID: command.id))
+            // The user is talking now, and the providers their transcript will
+            // visit are already known — so get the handshakes and the
+            // on-device model out of the way here, where the wait is free,
+            // instead of after they stop, where every millisecond is felt.
+            let settings = SettingsStore.load()
+            let style = SharedCatalog.style(id: command.styleID) ?? .light
+            Task { await DictationPipeline(settings: settings).prewarm(style: style) }
 
         case .stopDictation:
             // Results are attributed to the START command's id; the keyboard

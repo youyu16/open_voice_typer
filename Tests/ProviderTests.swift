@@ -63,6 +63,35 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(output, "Hello there.")
     }
 
+    /// Polish reshapes a transcript, it never reasons about one — and Gemini's
+    /// Flash models think by default, which puts seconds between the user
+    /// finishing a sentence and seeing it typed.
+    func testGeminiFlashPolishSpendsNothingOnThinking() async throws {
+        StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
+            let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            let thinking = (json["generationConfig"] as? [String: Any])?["thinkingConfig"] as? [String: Any]
+            XCTAssertEqual(thinking?["thinkingBudget"] as? Int, 0)
+            return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
+        }
+        let provider = GeminiLLM(model: "gemini-2.5-flash", apiKey: { "sk-gem" }, session: session)
+        let output = try await provider.polish(request)
+        XCTAssertEqual(output, "Hello there.")
+    }
+
+    /// Pro models have a thinking floor and non-thinking models reject the
+    /// field outright, so the budget is only sent where it is known to be
+    /// accepted — a faster polish is not worth a 400.
+    func testGeminiLeavesOtherModelsOnTheirDefaults() async throws {
+        StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
+            let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            XCTAssertNil(json["generationConfig"])
+            return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
+        }
+        let provider = GeminiLLM(model: "gemini-2.5-pro", apiKey: { "sk-gem" }, session: session)
+        let output = try await provider.polish(request)
+        XCTAssertEqual(output, "Hello there.")
+    }
+
     func testHTTPErrorSurfacesStatusAndBody() async {
         StubURLProtocol.stub(host: "api.openai.com") { _, _ in
             .init(status: 401, body: Data(#"{"error":{"message":"bad key"}}"#.utf8))

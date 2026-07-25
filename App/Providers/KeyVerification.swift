@@ -9,6 +9,20 @@ enum KeyVerifier {
         case openAICompatible(baseURL: String)
         case anthropic
         case gemini
+
+        /// The host this backend's requests connect to. Verification already
+        /// has to know it, so connection warming reads it from here rather
+        /// than making every `PolishBackendSpec` repeat its endpoint.
+        var origin: URL? {
+            switch self {
+            case .openAICompatible(let baseURL):
+                ConnectionWarmer.origin(ofBaseURL: baseURL)
+            case .anthropic:
+                URL(string: "https://api.anthropic.com/")
+            case .gemini:
+                URL(string: "https://generativelanguage.googleapis.com/")
+            }
+        }
     }
 
     static func verify(key: String, target: Target) async throws {

@@ -15,11 +15,11 @@ struct AppleSpeechASR: ASRProvider {
     var language: String = ""
 
     func transcribe(_ request: ASRRequest) async throws -> String {
-        let status = await requestAuthorization()
+        let status = await SpeechWarmup.shared.authorizationStatus()
         guard status == .authorized else { throw ASRError.speechPermissionDenied }
 
         let localeID = request.language.isEmpty ? language : request.language
-        let locale = localeID.isEmpty ? Locale.current : Locale(identifier: localeID)
+        let locale = SpeechWarmup.locale(for: localeID)
 
         // Both stacks want a file on disk.
         let fileURL = FileManager.default.temporaryDirectory
@@ -78,9 +78,10 @@ struct AppleSpeechASR: ASRProvider {
     /// iOS 26 SpeechAnalyzer path. Throws a plain error (not ASRError) when
     /// the environment can't run it, so the caller falls back to SFSpeech.
     private func transcribeWithAnalyzer(fileURL: URL, locale: Locale) async throws -> String {
-        guard await SpeechTranscriber.supportedLocales.contains(where: {
-            $0.identifier(.bcp47) == locale.identifier(.bcp47)
-        }) else {
+        // Locale support and model-asset installation are settled by
+        // `SpeechWarmup` — normally while the user was still speaking, so this
+        // returns immediately instead of paying for both after the fact.
+        guard await SpeechWarmup.shared.isAnalyzerReady(for: locale) else {
             throw AnalyzerUnavailable()
         }
 
@@ -90,11 +91,6 @@ struct AppleSpeechASR: ASRProvider {
             reportingOptions: [],
             attributeOptions: []
         )
-        // First run downloads the on-device model assets.
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            try await installation.downloadAndInstall()
-        }
-
         let analyzer = SpeechAnalyzer(modules: [transcriber])
 
         // Attach the collector before feeding audio so no result is missed.
@@ -148,13 +144,5 @@ struct AppleSpeechASR: ASRProvider {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ASRError.emptyTranscript }
         return trimmed
-    }
-
-    private func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
     }
 }
