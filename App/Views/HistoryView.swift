@@ -197,6 +197,8 @@ private struct HistoryDetailSheet: View {
     @State private var showRaw = false
     @State private var isRepolishing = false
     @State private var repolishError: String?
+    /// Read once when the sheet opens; Settings lives in App Group defaults.
+    private let showsTimings = SettingsStore.load().showsTimings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -225,6 +227,10 @@ private struct HistoryDetailSheet: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if showsTimings, let latency = record.latency {
+                timingBreakdown(latency)
+            }
 
             if let repolishError {
                 Text(repolishError)
@@ -267,6 +273,36 @@ private struct HistoryDetailSheet: View {
         .padding()
     }
 
+    /// Where the wait actually went, shown only when the user has asked for it
+    /// in Settings. Stages that didn't run are omitted, and the remainder is
+    /// labelled rather than hidden so the parts add up to the total.
+    private func timingBreakdown(_ latency: TranscriptRecord.Latency) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            timingRow("Total", milliseconds: latency.total, emphasized: true)
+            ForEach(latency.stages, id: \.name) { stage in
+                timingRow(stage.name, milliseconds: stage.milliseconds)
+            }
+            if latency.otherMilliseconds > 0 {
+                timingRow("Other", milliseconds: latency.otherMilliseconds)
+            }
+        }
+        .font(.caption)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.keyCap, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func timingRow(_ name: String, milliseconds: Int, emphasized: Bool = false) -> some View {
+        HStack {
+            Text(name)
+            Spacer()
+            Text(TranscriptRecord.Latency.format(milliseconds: milliseconds))
+                .monospacedDigit()
+        }
+        .fontWeight(emphasized ? .semibold : .regular)
+        .foregroundStyle(emphasized ? .primary : .secondary)
+    }
+
     /// Reruns the stored raw transcript through another template — no
     /// re-speaking. Lands as a new history entry.
     private func repolish(with style: Style) {
@@ -280,14 +316,20 @@ private struct HistoryDetailSheet: View {
         Task {
             defer { isRepolishing = false }
             do {
+                // A re-polish is one hop, so the total *is* the polish time —
+                // there is no speech stage to attribute anything to.
+                let start = ContinuousClock.now
                 let polished = try await pipeline.polishOnly(rawText: rawText, style: style)
+                let elapsed = (ContinuousClock.now - start).milliseconds
                 modelContext.insert(TranscriptRecord(
                     rawText: rawText,
                     polishedText: polished,
                     styleID: style.id,
                     source: TranscriptRecord.Source(rawValue: source) ?? .app,
                     engineName: pipeline.polishEngineName,
-                    audioSeconds: audioSeconds
+                    audioSeconds: audioSeconds,
+                    totalMilliseconds: elapsed,
+                    polishMilliseconds: elapsed
                 ))
                 dismiss()
             } catch {

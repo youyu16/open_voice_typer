@@ -411,7 +411,10 @@ final class HomeViewModel {
                     styleID: style.id,
                     source: .app,
                     engineName: outcome.engineName,
-                    audioSeconds: outcome.audioSeconds
+                    audioSeconds: outcome.audioSeconds,
+                    totalMilliseconds: outcome.totalMilliseconds,
+                    asrMilliseconds: outcome.asrMilliseconds,
+                    polishMilliseconds: outcome.polishMilliseconds
                 ))
             } catch {
                 errorMessage = error.localizedDescription

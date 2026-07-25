@@ -184,6 +184,49 @@ final class PipelineE2ETests: XCTestCase {
         XCTAssertEqual(raw.engineName, "scribe_v1_experimental")
     }
 
+    /// History's timing readout is only as honest as what the pipeline
+    /// reports: every stage that ran must be measured, the total must cover
+    /// the whole run rather than just the stages, and a skipped stage must
+    /// come back as zero rather than as a small bogus number.
+    func testThePipelineReportsWhereTheTimeWent() async throws {
+        var settings = ProviderSettings()
+        settings.asrBackend = .openAICompatible
+        settings.asrBaseURL = "https://asr.stub.test/v1"
+        settings.polishBackend = .openAICompatible
+        settings.polishBaseURL = "https://llm.stub.test/v1"
+        KeychainStore.set("sk-asr-test", for: .asrAPIKey)
+        KeychainStore.set("sk-llm-test", for: .polishOpenAIKey)
+
+        // Each stage sleeps so the measurements are distinguishable from zero
+        // and from each other.
+        StubURLProtocol.stub(host: "asr.stub.test") { _, _ in
+            Thread.sleep(forTimeInterval: 0.20)
+            return .init(body: Data(#"{"text":"um hello there"}"#.utf8))
+        }
+        StubURLProtocol.stub(host: "llm.stub.test") { _, _ in
+            Thread.sleep(forTimeInterval: 0.10)
+            return .init(body: Data(#"{"choices":[{"message":{"content":"Hello there."}}]}"#.utf8))
+        }
+
+        let outcome = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .light)
+
+        XCTAssertGreaterThanOrEqual(outcome.asrMilliseconds, 200)
+        XCTAssertGreaterThanOrEqual(outcome.polishMilliseconds, 100)
+        XCTAssertGreaterThanOrEqual(
+            outcome.totalMilliseconds,
+            outcome.asrMilliseconds + outcome.polishMilliseconds,
+            "the total must cover the whole run, not just the two stages"
+        )
+
+        // Raw skips polish — that stage really did take no time.
+        let raw = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .raw)
+        XCTAssertEqual(raw.polishMilliseconds, 0, "a skipped stage is zero, not a small number")
+        XCTAssertGreaterThanOrEqual(raw.asrMilliseconds, 200)
+        XCTAssertGreaterThanOrEqual(raw.totalMilliseconds, raw.asrMilliseconds)
+    }
+
     private func fixtureWAV() throws -> Data {
         let bundle = Bundle(for: Self.self)
         guard let url = bundle.url(forResource: "hello", withExtension: "wav") else {

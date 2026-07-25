@@ -323,7 +323,10 @@ final class SessionController {
             styleID: styleID,
             source: .keyboard,
             engineName: outcome.engineName,
-            audioSeconds: outcome.audioSeconds
+            audioSeconds: outcome.audioSeconds,
+            totalMilliseconds: outcome.totalMilliseconds,
+            asrMilliseconds: outcome.asrMilliseconds,
+            polishMilliseconds: outcome.polishMilliseconds
         ))
         // Save explicitly rather than trusting autosave. These inserts happen
         // while the app is backgrounded behind the keyboard, and autosave is

@@ -1,9 +1,11 @@
+import SwiftData
 import SwiftUI
 
 struct RootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         tabs
@@ -35,6 +37,32 @@ struct RootView: View {
                 if CommandLine.arguments.contains("--skip-onboarding") {
                     hasCompletedOnboarding = true
                 }
+                #if DEBUG
+                // UI-test hook: History's timing readout needs a measured
+                // dictation to render, and a UI test can't produce one without
+                // a microphone and live providers.
+                // Paired with the seed so a UI test can assert the default-off
+                // state without inheriting a preference an earlier run left
+                // behind — these share one App Group container per simulator.
+                if CommandLine.arguments.contains("--timings-off") {
+                    var settings = SettingsStore.load()
+                    settings.showsTimings = false
+                    SettingsStore.save(settings)
+                }
+                if CommandLine.arguments.contains("--seed-timed-history") {
+                    modelContext.insert(TranscriptRecord(
+                        rawText: "um hello there",
+                        polishedText: "Hello there.",
+                        styleID: Style.light.id,
+                        source: .keyboard,
+                        engineName: "uitest-fake",
+                        audioSeconds: 2.2,
+                        totalMilliseconds: 2400,
+                        asrMilliseconds: 1500,
+                        polishMilliseconds: 800
+                    ))
+                }
+                #endif
                 showOnboarding = !hasCompletedOnboarding
             }
             .fullScreenCover(isPresented: $showOnboarding, onDismiss: {

@@ -84,6 +84,11 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     var lastDictateStyleID: String = Style.light.id
     var targetLanguage: String = "English"
 
+    /// Whether History shows the per-stage latency of each dictation. The
+    /// timings are recorded either way — this only reveals them, so switching
+    /// it on explains the dictations already behind you, not just the next one.
+    var showsTimings: Bool = false
+
     /// Keyboard mic idle-timeout, in minutes; 0 means never. Measured from
     /// the last dictation, not from when the session started.
     var sessionAutoEndMinutes: Int = 60
@@ -133,6 +138,7 @@ struct ProviderSettings: Codable, Equatable, Sendable {
         // known list so an invalid target never reaches the polish prompt.
         targetLanguage = Self.targetLanguages.contains(decodedLanguage) ? decodedLanguage : defaults.targetLanguage
         sessionAutoEndMinutes = try c.decodeIfPresent(Int.self, forKey: .sessionAutoEndMinutes) ?? defaults.sessionAutoEndMinutes
+        showsTimings = try c.decodeIfPresent(Bool.self, forKey: .showsTimings) ?? defaults.showsTimings
     }
 }
 
