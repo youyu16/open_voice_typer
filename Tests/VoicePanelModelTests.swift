@@ -155,6 +155,42 @@ final class VoicePanelModelTests: XCTestCase {
         XCTAssertFalse(model.dictateStyles.contains { $0.id == Style.translate.id })
     }
 
+    // MARK: System keys (iPad)
+
+    /// On iPad no system row is drawn beneath the panel, so the globe and hide
+    /// keys the panel puts up in its place are the *only* way out of this
+    /// keyboard. Both were declared on the model but wired to nothing — the
+    /// view never rendered them — which is what left iPad users stuck.
+    func testSystemKeysReachTheirHandlers() {
+        let model = VoicePanelModel(needsInputModeSwitchKey: true)
+        model.activate()
+
+        var switched = 0
+        var dismissed = 0
+        model.onGlobe = { switched += 1 }
+        model.dismissKeyboardHandler = { dismissed += 1 }
+
+        model.switchToNextKeyboard()
+        model.dismissKeyboard()
+
+        XCTAssertEqual(switched, 1, "the globe key must advance the input mode")
+        XCTAssertEqual(dismissed, 1, "the hide key must dismiss the keyboard")
+    }
+
+    /// The flag is the panel's only signal for whether to draw those keys, so
+    /// it has to survive activation — which reloads settings and can reset
+    /// state that isn't held immutably.
+    func testNeedsInputModeSwitchKeyIsPreserved() {
+        let ipad = VoicePanelModel(needsInputModeSwitchKey: true)
+        ipad.activate()
+        XCTAssertTrue(ipad.needsInputModeSwitchKey)
+
+        let iphone = makeModel()
+        iphone.activate()
+        XCTAssertFalse(iphone.needsInputModeSwitchKey,
+                       "iPhone gets a system globe row; a second one would be a duplicate")
+    }
+
     // MARK: Undo
 
     func testUndoIsUnavailableWithNothingInserted() {

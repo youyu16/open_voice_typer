@@ -10,8 +10,8 @@ final class SettingsSnapshotUITests: XCTestCase {
         app.launchArguments = ["--skip-onboarding"]
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Settings"].waitForExistence(timeout: 15), "no tabs")
-        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.tabButton("Settings").waitForExistence(timeout: 15), "no tabs")
+        app.tabButton("Settings").tap()
 
         XCTAssertTrue(app.staticTexts["Polish"].waitForExistence(timeout: 10), "Polish section missing")
 
@@ -105,8 +105,8 @@ final class SettingsSnapshotUITests: XCTestCase {
         app.launchArguments = ["--skip-onboarding"]
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Settings"].waitForExistence(timeout: 15), "no tabs")
-        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.tabButton("Settings").waitForExistence(timeout: 15), "no tabs")
+        app.tabButton("Settings").tap()
         XCTAssertTrue(app.staticTexts["Polish"].waitForExistence(timeout: 10), "Polish section missing")
 
         // Cloud speech-to-text gives us an editable Base URL field to focus.
@@ -120,11 +120,11 @@ final class SettingsSnapshotUITests: XCTestCase {
                       "no way to dismiss the keyboard — the tab bar stays covered")
         done.tap()
 
-        XCTAssertTrue(app.tabBars.buttons["History"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.tabBars.buttons["History"].isHittable,
+        XCTAssertTrue(app.tabButton("History").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabButton("History").isHittable,
                       "the tab bar is still covered by the keyboard")
-        app.tabBars.buttons["History"].tap()
-        XCTAssertTrue(app.tabBars.buttons["History"].isSelected, "could not leave Settings")
+        app.tabButton("History").tap()
+        XCTAssertTrue(app.tabButton("History").isSelected, "could not leave Settings")
     }
 
     /// The engine picker is a menu button labelled "Engine, <selection>".

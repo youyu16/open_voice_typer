@@ -28,19 +28,19 @@ final class OnboardingUITests: XCTestCase {
         // Landed in the app: all five tabs present.
         for tab in ["Dictate", "History", "Templates", "Dictionary", "Settings"] {
             XCTAssertTrue(
-                app.tabBars.buttons[tab].waitForExistence(timeout: 10),
+                app.tabButton(tab).waitForExistence(timeout: 10),
                 "\(tab) tab missing after onboarding"
             )
         }
 
         // Tab navigation works and key screens render.
-        tapWhenReady(app.tabBars.buttons["Templates"], page: "Templates tab")
+        tapWhenReady(app.tabButton("Templates"), page: "Templates tab")
         XCTAssertTrue(app.staticTexts["Raw"].waitForExistence(timeout: 10), "built-in templates not listed")
 
-        tapWhenReady(app.tabBars.buttons["Settings"], page: "Settings tab")
+        tapWhenReady(app.tabButton("Settings"), page: "Settings tab")
         XCTAssertTrue(app.staticTexts["Speech to text"].waitForExistence(timeout: 10), "settings sections missing")
 
-        tapWhenReady(app.tabBars.buttons["Dictate"], page: "Dictate tab")
+        tapWhenReady(app.tabButton("Dictate"), page: "Dictate tab")
         XCTAssertTrue(app.buttons["Start recording"].waitForExistence(timeout: 10), "dictation mic button missing")
     }
 
@@ -68,7 +68,7 @@ final class OnboardingUITests: XCTestCase {
         app.launch() // no reset argument
 
         XCTAssertTrue(
-            app.tabBars.buttons["Dictate"].waitForExistence(timeout: 10),
+            app.tabButton("Dictate").waitForExistence(timeout: 10),
             "app should go straight to tabs once onboarding is done"
         )
         XCTAssertFalse(app.buttons["Get started"].exists, "onboarding reappeared")

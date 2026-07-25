@@ -62,10 +62,14 @@ final class VoicePanelModel {
     /// Shown next to the Translate mode; refreshed on activation.
     private(set) var targetLanguage = "English"
 
+    /// True when the host will *not* draw a keyboard-switch affordance for us
+    /// and the panel has to supply one itself — which is the case on iPad.
+    /// See `VoicePanelView.systemKeyColumn`.
     let needsInputModeSwitchKey: Bool
     var onGlobe: () -> Void = {}
     var insertTextHandler: (String) -> Void = { _ in }
     var deleteBackwardHandler: () -> Void = {}
+    var dismissKeyboardHandler: () -> Void = {}
 
     /// Deep link that launches the containing app (which auto-starts the mic
     /// session on foreground). Opened via a SwiftUI `Link`.
@@ -340,6 +344,17 @@ final class VoicePanelModel {
 
     func deleteBackward() {
         deleteBackwardHandler()
+    }
+
+    /// Hands the input session to the next keyboard (the globe key's job).
+    func switchToNextKeyboard() {
+        onGlobe()
+    }
+
+    /// Puts the keyboard away. Only reachable where the system draws no row of
+    /// its own to do it — see `needsInputModeSwitchKey`.
+    func dismissKeyboard() {
+        dismissKeyboardHandler()
     }
 
     /// Streams the text in for a typing feel, one step every

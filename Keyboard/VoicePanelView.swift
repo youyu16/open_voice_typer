@@ -156,20 +156,21 @@ struct VoicePanelView: View {
     // MARK: Action cluster
 
     /// Typeless's arrangement: the primary control and `return` stacked down
-    /// the panel's centerline, with the secondary keys in a column pinned to
-    /// the trailing edge. Overlaying that column instead of giving it a row of
-    /// its own is what keeps the mic optically centered and lets the keys span
-    /// the mic and `return` rows the way Typeless's do.
+    /// the panel's centerline, with the secondary keys in columns pinned to the
+    /// edges — delete/undo trailing everywhere, globe/hide leading on iPad.
+    /// Overlaying those columns instead of giving them rows of their own is
+    /// what keeps the mic optically centered and lets the keys span the mic and
+    /// `return` rows the way Typeless's do.
     private var actionCluster: some View {
-        ZStack(alignment: .trailing) {
-            VStack(spacing: 10) {
-                primaryArea
-                returnKey
-            }
-            .frame(maxWidth: .infinity)
-
-            utilityColumn
+        VStack(spacing: 10) {
+            primaryArea
+            returnKey
         }
+        .frame(maxWidth: .infinity)
+        // Overlays rather than stack siblings: neither column may take part in
+        // laying the cluster out, or the mic stops being optically centered.
+        .overlay(alignment: .leading) { systemKeyColumn }
+        .overlay(alignment: .trailing) { utilityColumn }
     }
 
     @ViewBuilder
@@ -274,6 +275,32 @@ struct VoicePanelView: View {
         }
         .buttonStyle(KeyPressStyle())
         .accessibilityLabel("Return")
+    }
+
+    /// Globe and hide, stacked at the leading edge to mirror the utility
+    /// column — and to sit where the system keyboard puts the same two keys.
+    ///
+    /// iPhone draws its own globe row *underneath* every custom keyboard, so
+    /// this column would be a duplicate there and stays hidden. iPad draws no
+    /// such row: without these keys the panel is a dead end — no way back to
+    /// the alphabet keyboard and no way to put the keyboard away. That is
+    /// exactly the condition `needsInputModeSwitchKey` reports, so it gates
+    /// both keys rather than a device check.
+    @ViewBuilder
+    private var systemKeyColumn: some View {
+        if model.needsInputModeSwitchKey {
+            VStack(spacing: 10) {
+                utilityKey("globe", label: "Next keyboard") {
+                    model.switchToNextKeyboard()
+                }
+                .accessibilityIdentifier("ovt-next-keyboard")
+
+                utilityKey("keyboard.chevron.compact.down", label: "Hide keyboard") {
+                    model.dismissKeyboard()
+                }
+                .accessibilityIdentifier("ovt-hide-keyboard")
+            }
+        }
     }
 
     /// Delete and undo, stacked at the trailing edge. Typeless puts an "@" in

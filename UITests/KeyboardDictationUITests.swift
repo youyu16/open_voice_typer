@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// The full Typeless-style journey, automated end to end:
@@ -41,6 +42,7 @@ final class KeyboardDictationUITests: XCTestCase {
             return
         }
         captureScreen(host, name: "voice-keyboard-open")
+        assertKeyboardHasAnExit(in: host)
 
         // Dictate: tap → (speak) → tap. The fake pipeline returns the text
         // regardless of audio content; capture itself is real.
@@ -149,6 +151,30 @@ final class KeyboardDictationUITests: XCTestCase {
         return false
     }
 
+    // MARK: - Escape hatch
+
+    /// A custom keyboard the user cannot leave is worse than no keyboard, and
+    /// the two platforms hand out that escape differently: iPhone draws a
+    /// globe row underneath every custom keyboard, iPad draws nothing at all.
+    /// So on iPad the panel must supply its own globe and hide keys, and on
+    /// iPhone it must not — a second globe next to the system's is confusing.
+    @MainActor
+    private func assertKeyboardHasAnExit(in host: XCUIApplication) {
+        let globe = host.buttons["ovt-next-keyboard"]
+        let hide = host.buttons["ovt-hide-keyboard"]
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertTrue(
+                globe.waitForExistence(timeout: 5),
+                "iPad draws no system globe row — without our own key the user is stuck in Voice Typer"
+            )
+            XCTAssertTrue(hide.exists, "iPad has no system way to put the keyboard away either")
+        } else {
+            XCTAssertFalse(globe.exists, "iPhone already gets a system globe row")
+            XCTAssertFalse(hide.exists, "iPhone already gets a system dismiss affordance")
+        }
+    }
+
     // MARK: - Host app
 
     /// First launches of system apps show one-off interstitials (welcome
@@ -199,11 +225,30 @@ final class KeyboardDictationUITests: XCTestCase {
             if bar.waitForExistence(timeout: 4) {
                 bar.tap()
                 dismissInterstitials(safari) // typing tutorial over the keyboard
-                return (safari, safari.textFields[identifier].firstMatch)
+                return (safari, safariEditableField(safari, labelled: identifier))
             }
         }
         captureScreen(safari, name: "safari-no-field")
         throw XCTSkip("no automatable host text field found (Reminders/Safari)")
+    }
+
+    /// The one Safari field that actually receives the typing.
+    ///
+    /// On iPad there are *two* text fields labelled "Address": the live search
+    /// field (identifier `SearchFieldItemView…`) and the tab bar's title
+    /// (`TabBarItemTitleContainer`). `firstMatch` resolves to the tab title,
+    /// whose `value` never changes — so the dictated text landed correctly and
+    /// the assertion still timed out. iPhone has only the one field, which is
+    /// why this never surfaced there.
+    @MainActor
+    private func safariEditableField(
+        _ safari: XCUIApplication,
+        labelled identifier: String
+    ) -> XCUIElement {
+        let searchField = safari.textFields
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'SearchFieldItemView'"))
+            .firstMatch
+        return searchField.exists ? searchField : safari.textFields[identifier].firstMatch
     }
 
     // MARK: - Keyboard switching
