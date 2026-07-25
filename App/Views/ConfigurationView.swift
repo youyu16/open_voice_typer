@@ -8,6 +8,8 @@ struct ConfigurationView: View {
     @State private var editingKey: KeyEditorContext?
     /// Bumped after the key sheet closes so status badges re-read the store.
     @State private var keyStateVersion = 0
+    /// Whether any text field in the form holds the keyboard.
+    @FocusState private var isEditingField: Bool
 
     var body: some View {
         NavigationStack {
@@ -19,6 +21,17 @@ struct ConfigurationView: View {
                 aboutSection
             }
             .navigationTitle("Settings")
+            // Every row here is a text field, and the system keyboard covers
+            // the tab bar — so without a way out, typing anything into Settings
+            // trapped the user on the screen. Two ways out: swipe the form
+            // down, or tap Done above the keyboard.
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { isEditingField = false }
+                }
+            }
             .onChange(of: settings) { SettingsStore.save(settings) }
             .sheet(item: $editingKey, onDismiss: { keyStateVersion += 1 }) { context in
                 KeyEditorSheet(context: context)
@@ -247,6 +260,7 @@ struct ConfigurationView: View {
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .keyboardType(.URL)
+            .focused($isEditingField)
     }
 }
 

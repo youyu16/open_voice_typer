@@ -62,7 +62,7 @@ extension PolishBackendSpec {
             key: .polishGroqKey,
             model: \.groqModel,
             baseURL: "https://api.groq.com/openai/v1",
-            models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+            models: ["openai/gpt-oss-20b", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "llama-3.3-70b-versatile"],
             console: "https://console.groq.com/keys"
         ),
         .hosted(
@@ -70,7 +70,7 @@ extension PolishBackendSpec {
             key: .polishOpenRouterKey,
             model: \.openRouterModel,
             baseURL: "https://openrouter.ai/api/v1",
-            models: ["openai/gpt-4o-mini", "google/gemini-2.5-flash", "meta-llama/llama-3.3-70b-instruct"],
+            models: ["openai/gpt-5.6-luna", "google/gemini-3.5-flash-lite", "anthropic/claude-haiku-4.5"],
             console: "https://openrouter.ai/keys"
         ),
         .hosted(
@@ -78,7 +78,7 @@ extension PolishBackendSpec {
             key: .polishXAIKey,
             model: \.xaiModel,
             baseURL: "https://api.x.ai/v1",
-            models: ["grok-4-fast", "grok-3-mini"],
+            models: ["grok-4.5", "grok-4.5-latest"],
             console: "https://console.x.ai"
         ),
         .hosted(
@@ -86,7 +86,7 @@ extension PolishBackendSpec {
             key: .polishMistralKey,
             model: \.mistralModel,
             baseURL: "https://api.mistral.ai/v1",
-            models: ["mistral-small-latest", "mistral-medium-latest", "ministral-8b-latest"],
+            models: ["mistral-small-4-0-26-03", "ministral-3-8b-25-12", "ministral-3-3b-25-12"],
             console: "https://console.mistral.ai/api-keys"
         ),
         PolishBackendSpec(
@@ -94,7 +94,7 @@ extension PolishBackendSpec {
             keychainKey: .polishAnthropicKey,
             modelKeyPath: \.anthropicModel,
             baseURLKeyPath: nil,
-            presetModels: [],
+            presetModels: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
             makeGetKeyURL: { _ in "https://console.anthropic.com/settings/keys" },
             makeProvider: { settings in
                 AnthropicLLM(
@@ -109,7 +109,7 @@ extension PolishBackendSpec {
             keychainKey: .polishGeminiKey,
             modelKeyPath: \.geminiModel,
             baseURLKeyPath: nil,
-            presetModels: [],
+            presetModels: ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.1-pro-preview"],
             makeGetKeyURL: { _ in "https://aistudio.google.com/apikey" },
             makeProvider: { settings in
                 GeminiLLM(

@@ -61,17 +61,22 @@ struct ProviderSettings: Codable, Equatable, Sendable {
 
     var polishBackend: PolishBackend = .openAICompatible
     var polishBaseURL: String = "https://api.openai.com/v1"
-    var polishModel: String = "gpt-4o-mini"
+    var polishModel: String = "gpt-5.6-luna"
     /// One model field per fixed-endpoint backend, so switching providers
     /// keeps each one's model (and, with its own Keychain slot, its key) —
     /// you can flip between them without re-entering anything.
+    ///
+    /// Defaults favour each provider's fast, cheap tier: polish is a mechanical
+    /// rewrite of a sentence or two, so the flagship models cost seconds of
+    /// added latency for output the user can't tell apart. Anything here can be
+    /// overtyped, and every backend offers its larger models as a quick-pick.
     var deepseekModel: String = "deepseek-v4-flash"
-    var anthropicModel: String = "claude-sonnet-5"
-    var geminiModel: String = "gemini-2.5-flash"
-    var groqModel: String = "llama-3.3-70b-versatile"
-    var openRouterModel: String = "openai/gpt-4o-mini"
-    var xaiModel: String = "grok-4-fast"
-    var mistralModel: String = "mistral-small-latest"
+    var anthropicModel: String = "claude-haiku-4-5"
+    var geminiModel: String = "gemini-3.5-flash-lite"
+    var groqModel: String = "openai/gpt-oss-20b"
+    var openRouterModel: String = "openai/gpt-5.6-luna"
+    var xaiModel: String = "grok-4.5"
+    var mistralModel: String = "mistral-small-4-0-26-03"
 
     var selectedStyleID: String = Style.light.id
     /// The template to return to when the keyboard's Dictate/Translate toggle
@@ -150,7 +155,7 @@ struct ProviderPreset: Identifiable {
         .init(name: "DeepInfra", baseURL: "https://api.deepinfra.com/v1/openai", model: "openai/whisper-large-v3-turbo"),
         .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "whisper-v3-turbo"),
         .init(name: "Lemonfox", baseURL: "https://api.lemonfox.ai/v1", model: "whisper-1"),
-        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-latest"),
+        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-transcribe-26-02"),
         .init(name: "Zhipu GLM (International)", baseURL: "https://api.z.ai/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Zhipu GLM (China)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "whisper-1"),
@@ -160,7 +165,7 @@ struct ProviderPreset: Identifiable {
     /// its own `PolishBackendSpec` has its own key slot and model field, which
     /// a base-URL preset would quietly bypass.
     static let polish: [ProviderPreset] = [
-        .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
+        .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-5.6-luna"),
         .init(name: "Cerebras", baseURL: "https://api.cerebras.ai/v1", model: "llama3.1-8b"),
         .init(name: "Together", baseURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "accounts/fireworks/models/llama-v3p3-70b-instruct"),

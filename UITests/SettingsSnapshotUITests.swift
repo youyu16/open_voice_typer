@@ -96,6 +96,37 @@ final class SettingsSnapshotUITests: XCTestCase {
         add(scribe)
     }
 
+    /// Typing into any Settings field used to trap the user: the system
+    /// keyboard covers the tab bar, and a Form has no built-in way to dismiss
+    /// it, so there was no way back to the other tabs without force-quitting.
+    @MainActor
+    func testTypingInSettingsDoesNotTrapTheKeyboard() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.tabBars.buttons["Settings"].waitForExistence(timeout: 15), "no tabs")
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.staticTexts["Polish"].waitForExistence(timeout: 10), "Polish section missing")
+
+        // Cloud speech-to-text gives us an editable Base URL field to focus.
+        selectEngine("Cloud (OpenAI-compatible)", in: app)
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no editable field in Settings")
+        field.tap()
+
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5),
+                      "no way to dismiss the keyboard — the tab bar stays covered")
+        done.tap()
+
+        XCTAssertTrue(app.tabBars.buttons["History"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["History"].isHittable,
+                      "the tab bar is still covered by the keyboard")
+        app.tabBars.buttons["History"].tap()
+        XCTAssertTrue(app.tabBars.buttons["History"].isSelected, "could not leave Settings")
+    }
+
     /// The engine picker is a menu button labelled "Engine, <selection>".
     @MainActor
     private func selectEngine(_ name: String, in app: XCUIApplication) {
