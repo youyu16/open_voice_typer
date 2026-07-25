@@ -58,5 +58,25 @@ final class SettingsSnapshotUITests: XCTestCase {
                       "Mistral has no API Key row")
         XCTAssertFalse(app.staticTexts["Base URL"].exists,
                        "a fixed-endpoint backend must not offer a Base URL field")
+
+        // Cloud speech-to-text is configured by preset rather than by a
+        // provider picker, so its menu is the equivalent surface to check.
+        app.buttons["Cloud"].tap()
+        app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH 'Preset'"))
+            .firstMatch
+            .tap()
+        for name in ["OpenAI", "Groq", "Together", "DeepInfra", "Fireworks",
+                     "Lemonfox", "Mistral (Voxtral)", "Local server"] {
+            XCTAssertTrue(
+                app.buttons[name].waitForExistence(timeout: 5),
+                "\(name) is missing from the speech-to-text preset menu"
+            )
+        }
+
+        let asrPresets = XCTAttachment(screenshot: app.screenshot())
+        asrPresets.name = "settings-asr-presets"
+        asrPresets.lifetime = .keepAlways
+        add(asrPresets)
     }
 }

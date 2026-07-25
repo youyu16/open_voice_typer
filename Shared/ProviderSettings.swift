@@ -126,11 +126,19 @@ struct ProviderPreset: Identifiable {
     let model: String
     var id: String { name }
 
+    /// Every entry must speak the Whisper-style OpenAI dialect — multipart
+    /// `POST {baseURL}/audio/transcriptions` answering `{"text": …}` — because
+    /// that is the only shape `OpenAICompatibleASR` sends. Providers with
+    /// their own protocol (Deepgram, ElevenLabs Scribe, AssemblyAI) need a
+    /// client of their own, not a preset.
     static let asr: [ProviderPreset] = [
         .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-transcribe"),
         .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo"),
-        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-latest"),
+        .init(name: "Together", baseURL: "https://api.together.xyz/v1", model: "openai/whisper-large-v3"),
+        .init(name: "DeepInfra", baseURL: "https://api.deepinfra.com/v1/openai", model: "openai/whisper-large-v3-turbo"),
         .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "whisper-v3-turbo"),
+        .init(name: "Lemonfox", baseURL: "https://api.lemonfox.ai/v1", model: "whisper-1"),
+        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-latest"),
         .init(name: "Zhipu GLM (International)", baseURL: "https://api.z.ai/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Zhipu GLM (China)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "whisper-1"),

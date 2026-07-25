@@ -33,6 +33,13 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Lets you point speech-to-text or polish at a transcription server running on your own network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Open Voice Typer records audio during a dictation session to transcribe your speech.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

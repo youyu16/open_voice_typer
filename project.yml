@@ -31,6 +31,13 @@ targets:
         UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Open Voice Typer records audio during a dictation session to transcribe your speech.
         NSSpeechRecognitionUsageDescription: Used for on-device speech recognition when Apple ASR is selected.
+        # A self-hosted transcription server (whisper.cpp, Speaches, LM Studio)
+        # is plain HTTP on the LAN, which ATS blocks and iOS gates behind the
+        # local-network prompt. Cleartext stays limited to local networking —
+        # provider endpoints on the internet are still HTTPS-only.
+        NSLocalNetworkUsageDescription: Lets you point speech-to-text or polish at a transcription server running on your own network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: com.shuaiwang.openvoicetyper

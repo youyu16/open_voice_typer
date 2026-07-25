@@ -106,6 +106,48 @@ final class PresetTests: XCTestCase {
         }
     }
 
+    /// A preset is a one-tap promise that the endpoint works, so each needs a
+    /// usable URL, a model, and — for anything hosted — somewhere to get a
+    /// key. A preset you can't authenticate is a dead end.
+    func testEveryPresetIsUsable() {
+        for preset in ProviderPreset.asr + ProviderPreset.polish {
+            let url = URL(string: preset.baseURL)
+            XCTAssertNotNil(url?.host(), "\(preset.name) has no host")
+            XCTAssertFalse(preset.model.isEmpty, "\(preset.name) names no model")
+            if url?.scheme == "https" {
+                XCTAssertNotNil(
+                    ProviderConsole.keyURL(forBaseURL: preset.baseURL),
+                    "\(preset.name) doesn't say where to get a key"
+                )
+            }
+        }
+        // A provider may appear in both menus (OpenAI does both jobs), but
+        // twice in the same menu is a duplicate row the user has to read past.
+        for menu in [ProviderPreset.asr, ProviderPreset.polish] {
+            XCTAssertEqual(Set(menu.map(\.name)).count, menu.count, "duplicate preset name in one menu")
+        }
+    }
+
+    /// The self-hosted preset is plain HTTP on the LAN, which iOS blocks
+    /// outright unless the app opts into local networking — without these keys
+    /// it is a button that can only ever fail.
+    func testSelfHostedPresetsCanActuallyConnect() {
+        let info = Bundle.main.infoDictionary
+        let ats = info?["NSAppTransportSecurity"] as? [String: Any]
+        XCTAssertEqual(ats?["NSAllowsLocalNetworking"] as? Bool, true,
+                       "cleartext to a local server is blocked without NSAllowsLocalNetworking")
+        XCTAssertNotNil(info?["NSLocalNetworkUsageDescription"],
+                        "iOS gates local-network access behind a usage description")
+
+        let cleartext = (ProviderPreset.asr + ProviderPreset.polish)
+            .filter { URL(string: $0.baseURL)?.scheme != "https" }
+        XCTAssertFalse(cleartext.isEmpty, "expected at least one self-hosted preset")
+        for preset in cleartext {
+            XCTAssertEqual(preset.name, "Local server",
+                           "\(preset.name) reaches the internet in cleartext")
+        }
+    }
+
     func testDeepSeekIsFirstClassPolishBackend() {
         XCTAssertTrue(ProviderSettings.PolishBackend.allCases.contains(.deepseek))
         XCTAssertEqual(ProviderSettings().deepseekModel, "deepseek-v4-flash")
