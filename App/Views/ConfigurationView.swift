@@ -31,12 +31,17 @@ struct ConfigurationView: View {
 
     private var asrSection: some View {
         Section {
+            // A menu rather than the old two-value segmented control: engines
+            // are no longer a binary, and their names don't fit in segments.
             Picker("Engine", selection: $settings.asrBackend) {
-                Text("On-device").tag(ProviderSettings.ASRBackend.apple)
-                Text("Cloud").tag(ProviderSettings.ASRBackend.openAICompatible)
+                ForEach(ProviderSettings.ASRBackend.allCases, id: \.self) { backend in
+                    Text(backend.displayName).tag(backend)
+                }
             }
-            .pickerStyle(.segmented)
-            if settings.asrBackend == .openAICompatible {
+            switch settings.asrBackend {
+            case .apple:
+                EmptyView()
+            case .openAICompatible:
                 presetRow(ProviderPreset.asr) { preset in
                     settings.asrBaseURL = preset.baseURL
                     settings.asrModel = preset.model
@@ -49,6 +54,13 @@ struct ConfigurationView: View {
                 }
                 keyRow("API Key", key: .asrAPIKey, target: .openAICompatible(baseURL: settings.asrBaseURL),
                        getKeyURL: ProviderConsole.keyURL(forBaseURL: settings.asrBaseURL))
+            case .elevenLabs:
+                modelPresetMenu(ProviderSettings.elevenLabsModels, into: \.elevenLabsModel)
+                LabeledContent("Model") {
+                    plainField("scribe_v1", text: $settings.elevenLabsModel)
+                }
+                keyRow("API Key", key: .asrElevenLabsKey, target: .elevenLabs,
+                       getKeyURL: ProviderConsole.keyURL(forBaseURL: ElevenLabsASR.endpoint.absoluteString))
             }
             LabeledContent("Language") {
                 plainField("auto", text: $settings.asrLanguage)
@@ -56,9 +68,14 @@ struct ConfigurationView: View {
         } header: {
             Text("Speech to text")
         } footer: {
-            settings.asrBackend == .apple
-                ? Text("Free, offline, no key needed — Apple on-device recognition. Language is an ISO-639 hint like “en” or “zh”; empty auto-detects.")
-                : Text("Any OpenAI-compatible endpoint: OpenAI, Groq, etc.")
+            switch settings.asrBackend {
+            case .apple:
+                Text("Free, offline, no key needed — Apple on-device recognition. Language is an ISO-639 hint like “en” or “zh”; empty auto-detects.")
+            case .openAICompatible:
+                Text("Any OpenAI-compatible endpoint: OpenAI, Groq, etc.")
+            case .elevenLabs:
+                Text("ElevenLabs Scribe — high accuracy across ~99 languages. Your dictionary is applied during polish rather than here; Scribe has no term-biasing field.")
+            }
         }
     }
 
@@ -86,7 +103,7 @@ struct ConfigurationView: View {
             }
             // Fixed-model quick-pick (e.g. DeepSeek's flash/pro).
             if !spec.presetModels.isEmpty {
-                modelPresetMenu(spec)
+                modelPresetMenu(spec.presetModels, into: spec.modelKeyPath)
             }
             LabeledContent("Model") {
                 plainField(ProviderSettings()[keyPath: spec.modelKeyPath], text: binding(spec.modelKeyPath))
@@ -101,11 +118,14 @@ struct ConfigurationView: View {
         }
     }
 
-    /// Quick-pick menu for a backend that offers a fixed set of models.
-    private func modelPresetMenu(_ spec: PolishBackendSpec) -> some View {
+    /// Quick-pick menu for an engine that offers a fixed set of models.
+    private func modelPresetMenu(
+        _ models: [String],
+        into keyPath: WritableKeyPath<ProviderSettings, String>
+    ) -> some View {
         Menu {
-            ForEach(spec.presetModels, id: \.self) { model in
-                Button(model) { settings[keyPath: spec.modelKeyPath] = model }
+            ForEach(models, id: \.self) { model in
+                Button(model) { settings[keyPath: keyPath] = model }
             }
         } label: {
             LabeledContent("Preset") {

@@ -32,6 +32,12 @@ final class VoicePanelModel {
     /// A tap-start-to-stop shorter than this is treated as a misclick and
     /// discarded locally — no round trip to the app, nothing to wait for.
     static let minRecordingSeconds: TimeInterval = 0.6
+    /// Gap between insertion steps, and the number of steps any transcript is
+    /// allowed — together they cap the typing animation at ~0.4 s however long
+    /// the dictation was (it used to run to 1.5 s, all of it after the text
+    /// was already in hand).
+    static let insertionStepMS = 6
+    static let maxInsertionSteps = 66
 
     /// Dictate inserts what you said (via the selected template); Translate
     /// rides the built-in Translate style into the configured target language.
@@ -336,20 +342,19 @@ final class VoicePanelModel {
         deleteBackwardHandler()
     }
 
-    /// Streams the text in character-by-character for a typing feel, capped
-    /// at ~1.5 s total so long dictations don't crawl.
+    /// Streams the text in for a typing feel, one step every
+    /// `insertionStepMS`. The animation is a feel, not a feature: it must
+    /// never be the slowest part of a dictation, so a long transcript arrives
+    /// in small chunks instead of crawling character by character. That also
+    /// bounds the number of proxy writes — each one is a hop into the host app
+    /// and a re-layout of its text view, so a 600-character transcript must
+    /// not cost 600 of them.
     private func insert(_ text: String) {
         guard !text.isEmpty else {
             phase = .idle
             return
         }
-        let delayMS = min(6, 1500 / text.count)
-        guard delayMS >= 1 else {
-            insertTextHandler(text)
-            lastInsertedText = text
-            phase = .idle
-            return
-        }
+        let chunkSize = max(1, Int((Double(text.count) / Double(Self.maxInsertionSteps)).rounded(.up)))
         phase = .processing
         // `lastInsertedText` is what undo deletes, one deleteBackward per
         // character, so it must record what actually *landed* — not what we
@@ -360,11 +365,15 @@ final class VoicePanelModel {
         lastInsertedText = ""
         insertionTask?.cancel()
         insertionTask = Task { @MainActor in
-            for character in text {
+            var index = text.startIndex
+            while index < text.endIndex {
                 guard !Task.isCancelled else { break }
-                insertTextHandler(String(character))
-                lastInsertedText.append(character)
-                try? await Task.sleep(for: .milliseconds(delayMS))
+                let end = text.index(index, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+                let chunk = String(text[index..<end])
+                insertTextHandler(chunk)
+                lastInsertedText.append(chunk)
+                index = end
+                try? await Task.sleep(for: .milliseconds(Self.insertionStepMS))
             }
             insertionTask = nil
             // Don't stomp a phase set while this was streaming (a dismissal

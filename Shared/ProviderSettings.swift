@@ -7,27 +7,43 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     enum ASRBackend: String, Codable, CaseIterable, Sendable {
         case apple
         case openAICompatible
+        case elevenLabs
 
         var displayName: String {
             switch self {
-            case .apple: "Apple (on-device)"
-            case .openAICompatible: "OpenAI-compatible"
+            case .apple: "On-device"
+            case .openAICompatible: "Cloud (OpenAI-compatible)"
+            case .elevenLabs: "ElevenLabs Scribe"
             }
         }
+
+        /// Whether the engine is configured by base URL + model (the generic
+        /// OpenAI dialect) rather than being a fixed endpoint of its own.
+        var hasConfigurableBaseURL: Bool { self == .openAICompatible }
     }
 
+    /// Order here is the order of the Settings picker. Raw values are what get
+    /// persisted, so they must never change; the ordering is free to.
     enum PolishBackend: String, Codable, CaseIterable, Sendable {
         case openAICompatible
-        case deepseek
         case anthropic
         case gemini
+        case groq
+        case openRouter
+        case deepseek
+        case xai
+        case mistral
 
         var displayName: String {
             switch self {
             case .openAICompatible: "OpenAI-compatible"
-            case .deepseek: "DeepSeek"
             case .anthropic: "Anthropic"
             case .gemini: "Google Gemini"
+            case .groq: "Groq"
+            case .openRouter: "OpenRouter"
+            case .deepseek: "DeepSeek"
+            case .xai: "xAI (Grok)"
+            case .mistral: "Mistral"
             }
         }
     }
@@ -35,19 +51,27 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     var asrBackend: ASRBackend = .apple
     var asrBaseURL: String = "https://api.openai.com/v1"
     var asrModel: String = "gpt-4o-transcribe"
+    /// Kept apart from `asrModel` for the same reason each polish backend owns
+    /// its model field: switching engines must not lose the other's setup.
+    var elevenLabsModel: String = "scribe_v1"
     /// ISO-639 hint for ASR; empty = auto-detect / current locale.
     var asrLanguage: String = ""
+
+    static let elevenLabsModels = ["scribe_v1", "scribe_v1_experimental"]
 
     var polishBackend: PolishBackend = .openAICompatible
     var polishBaseURL: String = "https://api.openai.com/v1"
     var polishModel: String = "gpt-4o-mini"
+    /// One model field per fixed-endpoint backend, so switching providers
+    /// keeps each one's model (and, with its own Keychain slot, its key) —
+    /// you can flip between them without re-entering anything.
     var deepseekModel: String = "deepseek-v4-flash"
     var anthropicModel: String = "claude-sonnet-5"
     var geminiModel: String = "gemini-2.5-flash"
-
-    /// DeepSeek is a fixed, known endpoint — no base URL to configure.
-    static let deepseekBaseURL = "https://api.deepseek.com/v1"
-    static let deepseekModels = ["deepseek-v4-flash", "deepseek-v4-pro"]
+    var groqModel: String = "llama-3.3-70b-versatile"
+    var openRouterModel: String = "openai/gpt-4o-mini"
+    var xaiModel: String = "grok-4-fast"
+    var mistralModel: String = "mistral-small-latest"
 
     var selectedStyleID: String = Style.light.id
     /// The template to return to when the keyboard's Dictate/Translate toggle
@@ -86,12 +110,17 @@ struct ProviderSettings: Codable, Equatable, Sendable {
         asrBaseURL = try c.decodeIfPresent(String.self, forKey: .asrBaseURL) ?? defaults.asrBaseURL
         asrModel = try c.decodeIfPresent(String.self, forKey: .asrModel) ?? defaults.asrModel
         asrLanguage = try c.decodeIfPresent(String.self, forKey: .asrLanguage) ?? defaults.asrLanguage
+        elevenLabsModel = try c.decodeIfPresent(String.self, forKey: .elevenLabsModel) ?? defaults.elevenLabsModel
         polishBackend = try c.decodeIfPresent(PolishBackend.self, forKey: .polishBackend) ?? defaults.polishBackend
         polishBaseURL = try c.decodeIfPresent(String.self, forKey: .polishBaseURL) ?? defaults.polishBaseURL
         polishModel = try c.decodeIfPresent(String.self, forKey: .polishModel) ?? defaults.polishModel
         deepseekModel = try c.decodeIfPresent(String.self, forKey: .deepseekModel) ?? defaults.deepseekModel
         anthropicModel = try c.decodeIfPresent(String.self, forKey: .anthropicModel) ?? defaults.anthropicModel
         geminiModel = try c.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
+        groqModel = try c.decodeIfPresent(String.self, forKey: .groqModel) ?? defaults.groqModel
+        openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? defaults.openRouterModel
+        xaiModel = try c.decodeIfPresent(String.self, forKey: .xaiModel) ?? defaults.xaiModel
+        mistralModel = try c.decodeIfPresent(String.self, forKey: .mistralModel) ?? defaults.mistralModel
         selectedStyleID = try c.decodeIfPresent(String.self, forKey: .selectedStyleID) ?? defaults.selectedStyleID
         lastDictateStyleID = try c.decodeIfPresent(String.self, forKey: .lastDictateStyleID) ?? defaults.lastDictateStyleID
         let decodedLanguage = try c.decodeIfPresent(String.self, forKey: .targetLanguage) ?? defaults.targetLanguage
@@ -109,18 +138,33 @@ struct ProviderPreset: Identifiable {
     let model: String
     var id: String { name }
 
+    /// Every entry must speak the Whisper-style OpenAI dialect — multipart
+    /// `POST {baseURL}/audio/transcriptions` answering `{"text": …}` — because
+    /// that is the only shape `OpenAICompatibleASR` sends. Providers with
+    /// their own protocol (Deepgram, ElevenLabs Scribe, AssemblyAI) need a
+    /// client of their own, not a preset.
     static let asr: [ProviderPreset] = [
         .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-transcribe"),
         .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo"),
+        .init(name: "Together", baseURL: "https://api.together.xyz/v1", model: "openai/whisper-large-v3"),
+        .init(name: "DeepInfra", baseURL: "https://api.deepinfra.com/v1/openai", model: "openai/whisper-large-v3-turbo"),
+        .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "whisper-v3-turbo"),
+        .init(name: "Lemonfox", baseURL: "https://api.lemonfox.ai/v1", model: "whisper-1"),
+        .init(name: "Mistral (Voxtral)", baseURL: "https://api.mistral.ai/v1", model: "voxtral-mini-latest"),
         .init(name: "Zhipu GLM (International)", baseURL: "https://api.z.ai/api/paas/v4", model: "glm-asr-2512"),
         .init(name: "Zhipu GLM (China)", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-asr-2512"),
+        .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "whisper-1"),
     ]
 
-    // DeepSeek is not listed here — it is a first-class PolishBackend with
-    // its own key slot, not a base-URL preset.
+    /// Only for providers that are *not* first-class backends — anything with
+    /// its own `PolishBackendSpec` has its own key slot and model field, which
+    /// a base-URL preset would quietly bypass.
     static let polish: [ProviderPreset] = [
         .init(name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
-        .init(name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile"),
+        .init(name: "Cerebras", baseURL: "https://api.cerebras.ai/v1", model: "llama3.1-8b"),
+        .init(name: "Together", baseURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        .init(name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1", model: "accounts/fireworks/models/llama-v3p3-70b-instruct"),
+        .init(name: "Local server", baseURL: "http://192.168.1.10:8080/v1", model: "local-model"),
     ]
 }
 

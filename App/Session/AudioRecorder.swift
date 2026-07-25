@@ -198,7 +198,11 @@ final class AudioRecorder: @unchecked Sendable {
         let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
         let blockAlign = channels * bitsPerSample / 8
 
+        // Sized up front: this runs the moment the user stops speaking, and
+        // growing a header into a megabyte of audio would recopy the whole
+        // buffer on the way to the transcription request.
         var header = Data()
+        header.reserveCapacity(44 + pcm.count)
         header.append(contentsOf: Array("RIFF".utf8))
         header.appendLittleEndian(UInt32(36 + pcm.count))
         header.append(contentsOf: Array("WAVE".utf8))
@@ -212,7 +216,8 @@ final class AudioRecorder: @unchecked Sendable {
         header.appendLittleEndian(bitsPerSample)
         header.append(contentsOf: Array("data".utf8))
         header.appendLittleEndian(UInt32(pcm.count))
-        return header + pcm
+        header.append(pcm)
+        return header
     }
 }
 

@@ -21,9 +21,7 @@ final class PipelineE2ETests: XCTestCase {
         StubURLProtocol.reset()
         SettingsStore.save(savedSettings)
         SharedCatalog.saveDictionary(savedDictionary)
-        KeychainStore.delete(.asrAPIKey)
-        KeychainStore.delete(.polishOpenAIKey)
-        KeychainStore.delete(.polishDeepSeekKey)
+        KeychainStore.Key.allCases.forEach(KeychainStore.delete)
         super.tearDown()
     }
 
@@ -108,6 +106,82 @@ final class PipelineE2ETests: XCTestCase {
         let polished = try await pipeline.polishOnly(rawText: "um hello", style: .light)
         XCTAssertEqual(polished, "Polished by DeepSeek.")
         XCTAssertEqual(pipeline.polishEngineName, "deepseek-v4-pro")
+    }
+
+    /// Every fixed-endpoint backend must reach its own host carrying its own
+    /// key. The registry makes adding a provider a six-line declaration, which
+    /// is only safe if a wrong key slot or endpoint can't slip through — so
+    /// this loops the registry rather than naming providers, and a new one is
+    /// covered the moment it is declared.
+    func testEveryFixedEndpointBackendUsesItsOwnHostAndKey() async throws {
+        for spec in PolishBackendSpec.all where !spec.hasConfigurableBaseURL {
+            var settings = ProviderSettings()
+            settings.polishBackend = spec.backend
+
+            // The backend under test gets the real key; every other slot gets
+            // a decoy, so reaching for the wrong one is caught rather than
+            // silently working because both slots held the same value.
+            let expectedKey = "sk-\(spec.backend.rawValue)-real"
+            for key in KeychainStore.Key.allCases {
+                KeychainStore.set(key == spec.keychainKey ? expectedKey : "sk-decoy", for: key)
+            }
+
+            let host = try XCTUnwrap(
+                spec.makeVerifyTarget(settings).origin?.host(),
+                "\(spec.backend) has no endpoint host"
+            )
+            StubURLProtocol.reset()
+            StubURLProtocol.stub(host: host) { request, _ in
+                let credential = request.value(forHTTPHeaderField: "Authorization")?
+                    .replacingOccurrences(of: "Bearer ", with: "")
+                    ?? request.value(forHTTPHeaderField: "x-api-key")
+                    ?? request.value(forHTTPHeaderField: "x-goog-api-key")
+                XCTAssertEqual(credential, expectedKey, "\(spec.backend) sent the wrong key")
+                return .init(body: Data("""
+                {"choices":[{"message":{"content":"ok"}}],\
+                "content":[{"type":"text","text":"ok"}],\
+                "candidates":[{"content":{"parts":[{"text":"ok"}]}}]}
+                """.utf8))
+            }
+
+            let polished = try await DictationPipeline(settings: settings)
+                .polishOnly(rawText: "um hello", style: .light)
+            XCTAssertEqual(polished, "ok", "\(spec.backend) did not come back with a transcript")
+        }
+    }
+
+    /// The ElevenLabs engine has to be reachable through the real pipeline —
+    /// its own key slot, its own endpoint, and its model reported to history —
+    /// not just as a provider in isolation.
+    func testElevenLabsEngineRunsThroughThePipeline() async throws {
+        var settings = ProviderSettings()
+        settings.asrBackend = .elevenLabs
+        settings.elevenLabsModel = "scribe_v1_experimental"
+        settings.polishBackend = .openAICompatible
+        settings.polishBaseURL = "https://llm.stub.test/v1"
+        KeychainStore.set("sk-11l-real", for: .asrElevenLabsKey)
+        // The OpenAI-compatible ASR slot must not be reached for.
+        KeychainStore.set("sk-wrong-slot", for: .asrAPIKey)
+        KeychainStore.set("sk-llm-test", for: .polishOpenAIKey)
+
+        StubURLProtocol.stub(host: "api.elevenlabs.io") { request, _ in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "xi-api-key"), "sk-11l-real")
+            return .init(body: Data(#"{"text":"um hello there"}"#.utf8))
+        }
+        StubURLProtocol.stub(host: "llm.stub.test") { _, _ in
+            .init(body: Data(#"{"choices":[{"message":{"content":"Hello there."}}]}"#.utf8))
+        }
+
+        let outcome = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .light)
+        XCTAssertEqual(outcome.rawText, "um hello there")
+        XCTAssertEqual(outcome.polishedText, "Hello there.")
+
+        // Raw style skips polish, so the engine name is the ASR model — that
+        // is what history shows for an ElevenLabs dictation.
+        let raw = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .raw)
+        XCTAssertEqual(raw.engineName, "scribe_v1_experimental")
     }
 
     private func fixtureWAV() throws -> Data {

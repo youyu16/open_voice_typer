@@ -186,6 +186,31 @@ final class VoicePanelModelTests: XCTestCase {
         XCTAssertFalse(model.canUndo, "undo must not repeat")
     }
 
+    /// A long dictation must not turn into a long typing animation: the text
+    /// is already in hand by then, and every step is a hop into the host app
+    /// plus a re-layout of its text view. Long transcripts therefore stream in
+    /// chunks — the whole text still lands, and undo still matches it exactly.
+    func testLongTranscriptStreamsInBoundedStepsAndLandsWhole() async throws {
+        let model = makeModel()
+        var inserted = ""
+        var steps = 0
+        var deletions = 0
+        model.insertTextHandler = { inserted += $0; steps += 1 }
+        model.deleteBackwardHandler = { deletions += 1 }
+        model.activate()
+
+        let text = String(repeating: "the quick brown fox ", count: 30) // 600 characters
+        try await dictate(text, into: model)
+
+        XCTAssertEqual(inserted, text, "the whole transcript should have landed")
+        XCTAssertLessThanOrEqual(
+            steps, VoicePanelModel.maxInsertionSteps,
+            "600 characters must not cost 600 proxy writes"
+        )
+        model.undoLastInsert()
+        XCTAssertEqual(deletions, text.count, "undo still deletes one character per character inserted")
+    }
+
     /// Dismissing the keyboard mid-insert must stop the stream — otherwise the
     /// rest of the transcript types itself into whatever field the next host
     /// app puts in front of us — and undo must then account only for the part
@@ -200,23 +225,29 @@ final class VoicePanelModelTests: XCTestCase {
 
         // Cut the stream from inside the insert callback rather than racing it
         // with a sleep: the handler runs synchronously on the MainActor inside
-        // the streaming loop, so dismissing on the Nth character interrupts at
-        // exactly the Nth every time, however loaded the machine is.
+        // the streaming loop, so dismissing on the step that crosses `cutAfter`
+        // interrupts at exactly that step every time, however loaded the
+        // machine is. (A long transcript streams in chunks, so the crossing
+        // step lands at or just past `cutAfter`, not exactly on it.)
         let cutAfter = 5
         let text = String(repeating: "a", count: 400)
-        model.insertTextHandler = { [weak model] character in
-            inserted += character
-            if inserted.count == cutAfter { model?.deactivate() }
+        var dismissed = false
+        model.insertTextHandler = { [weak model] chunk in
+            inserted += chunk
+            guard !dismissed, inserted.count >= cutAfter else { return }
+            dismissed = true
+            model?.deactivate()
         }
 
         try await beginDictation(text, into: model)
         let deadline = Date().addingTimeInterval(5)
-        while inserted.count < cutAfter, Date() < deadline {
+        while !dismissed, Date() < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
 
         let atDismissal = inserted.count
-        XCTAssertEqual(atDismissal, cutAfter, "the stream should have been cut mid-flight")
+        XCTAssertTrue(dismissed, "the stream should have been cut mid-flight")
+        XCTAssertGreaterThanOrEqual(atDismissal, cutAfter)
         XCTAssertLessThan(atDismissal, text.count)
 
         try await Task.sleep(for: .milliseconds(250))

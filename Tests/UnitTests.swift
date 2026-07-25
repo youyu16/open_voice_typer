@@ -86,14 +86,72 @@ final class PromptBuilderTests: XCTestCase {
 final class PresetTests: XCTestCase {
     func testPresetsCoverRequestedProviders() {
         XCTAssertTrue(ProviderPreset.asr.contains { $0.model == "glm-asr-2512" })
-        // DeepSeek graduated from a preset to a first-class backend.
-        XCTAssertFalse(ProviderPreset.polish.contains { $0.baseURL.contains("deepseek") })
+        XCTAssertTrue(ProviderPreset.asr.contains { $0.baseURL.contains("groq.com") })
+    }
+
+    /// A polish preset only rewrites the generic backend's base URL, and the
+    /// generic backend has one shared key slot. Offering a preset for a
+    /// provider that is *also* first-class would therefore route the user
+    /// around its own key and model — the same trap DeepSeek was pulled out of.
+    func testPolishPresetsNeverShadowAFirstClassBackend() {
+        let firstClassHosts = PolishBackendSpec.all
+            .compactMap { $0.makeVerifyTarget(ProviderSettings()).origin?.host() }
+            .filter { $0 != "api.openai.com" } // the generic backend's own default
+        for preset in ProviderPreset.polish {
+            let host = URL(string: preset.baseURL)?.host() ?? ""
+            XCTAssertFalse(
+                firstClassHosts.contains(host),
+                "\(preset.name) is a first-class backend; a preset would bypass its key slot"
+            )
+        }
+    }
+
+    /// A preset is a one-tap promise that the endpoint works, so each needs a
+    /// usable URL, a model, and — for anything hosted — somewhere to get a
+    /// key. A preset you can't authenticate is a dead end.
+    func testEveryPresetIsUsable() {
+        for preset in ProviderPreset.asr + ProviderPreset.polish {
+            let url = URL(string: preset.baseURL)
+            XCTAssertNotNil(url?.host(), "\(preset.name) has no host")
+            XCTAssertFalse(preset.model.isEmpty, "\(preset.name) names no model")
+            if url?.scheme == "https" {
+                XCTAssertNotNil(
+                    ProviderConsole.keyURL(forBaseURL: preset.baseURL),
+                    "\(preset.name) doesn't say where to get a key"
+                )
+            }
+        }
+        // A provider may appear in both menus (OpenAI does both jobs), but
+        // twice in the same menu is a duplicate row the user has to read past.
+        for menu in [ProviderPreset.asr, ProviderPreset.polish] {
+            XCTAssertEqual(Set(menu.map(\.name)).count, menu.count, "duplicate preset name in one menu")
+        }
+    }
+
+    /// The self-hosted preset is plain HTTP on the LAN, which iOS blocks
+    /// outright unless the app opts into local networking — without these keys
+    /// it is a button that can only ever fail.
+    func testSelfHostedPresetsCanActuallyConnect() {
+        let info = Bundle.main.infoDictionary
+        let ats = info?["NSAppTransportSecurity"] as? [String: Any]
+        XCTAssertEqual(ats?["NSAllowsLocalNetworking"] as? Bool, true,
+                       "cleartext to a local server is blocked without NSAllowsLocalNetworking")
+        XCTAssertNotNil(info?["NSLocalNetworkUsageDescription"],
+                        "iOS gates local-network access behind a usage description")
+
+        let cleartext = (ProviderPreset.asr + ProviderPreset.polish)
+            .filter { URL(string: $0.baseURL)?.scheme != "https" }
+        XCTAssertFalse(cleartext.isEmpty, "expected at least one self-hosted preset")
+        for preset in cleartext {
+            XCTAssertEqual(preset.name, "Local server",
+                           "\(preset.name) reaches the internet in cleartext")
+        }
     }
 
     func testDeepSeekIsFirstClassPolishBackend() {
         XCTAssertTrue(ProviderSettings.PolishBackend.allCases.contains(.deepseek))
         XCTAssertEqual(ProviderSettings().deepseekModel, "deepseek-v4-flash")
-        XCTAssertTrue(ProviderSettings.deepseekModels.contains("deepseek-v4-pro"))
+        XCTAssertTrue(PolishBackendSpec.for(.deepseek).presetModels.contains("deepseek-v4-pro"))
     }
 }
 
@@ -118,15 +176,66 @@ final class PolishBackendSpecTests: XCTestCase {
         var settings = ProviderSettings()
         settings.deepseekModel = "deepseek-v4-pro"
         settings.anthropicModel = "claude-x"
+        settings.groqModel = "groq-x"
+        settings.mistralModel = "mistral-x"
         XCTAssertEqual(PolishBackendSpec.for(.deepseek).model(in: settings), "deepseek-v4-pro")
         XCTAssertEqual(PolishBackendSpec.for(.anthropic).model(in: settings), "claude-x")
+        XCTAssertEqual(PolishBackendSpec.for(.groq).model(in: settings), "groq-x")
+        XCTAssertEqual(PolishBackendSpec.for(.mistral).model(in: settings), "mistral-x")
+    }
+
+    /// Two backends sharing a model field would silently overwrite each
+    /// other's choice when the user switched providers.
+    func testEveryBackendHasItsOwnModelField() {
+        var settings = ProviderSettings()
+        for (index, spec) in PolishBackendSpec.all.enumerated() {
+            settings[keyPath: spec.modelKeyPath] = "model-\(index)"
+        }
+        let models = PolishBackendSpec.all.map { $0.model(in: settings) }
+        XCTAssertEqual(Set(models).count, models.count, "a model field is shared between backends")
+    }
+
+    func testEveryBackendPointsSomewhereToGetAKey() {
+        for spec in PolishBackendSpec.all {
+            let url = spec.makeGetKeyURL(ProviderSettings()).flatMap(URL.init(string:))
+            XCTAssertNotNil(url, "\(spec.backend) offers no way to get a key")
+        }
+    }
+
+    /// The whole point of a separate slot is that configuring one engine never
+    /// disturbs another — including across the ASR/polish boundary, where a
+    /// reused slot would mean an ElevenLabs key overwriting an OpenAI one.
+    func testEveryEngineAndBackendKeySlotIsDistinct() {
+        let polishSlots = PolishBackendSpec.all.map(\.keychainKey)
+        let asrSlots: [KeychainStore.Key] = [.asrAPIKey, .asrElevenLabsKey]
+        let all = polishSlots + asrSlots
+        XCTAssertEqual(Set(all).count, all.count, "two engines share a Keychain slot")
+        XCTAssertEqual(Set(KeychainStore.Key.allCases.map(\.rawValue)).count,
+                       KeychainStore.Key.allCases.count,
+                       "two Keychain keys share a raw value")
+    }
+
+    func testElevenLabsIsAFirstClassASREngine() {
+        XCTAssertTrue(ProviderSettings.ASRBackend.allCases.contains(.elevenLabs))
+        XCTAssertEqual(ProviderSettings().elevenLabsModel, "scribe_v1")
+        XCTAssertFalse(ProviderSettings.ASRBackend.elevenLabs.hasConfigurableBaseURL,
+                       "Scribe is a fixed endpoint, not a base URL to point anywhere")
+        XCTAssertNotNil(
+            ProviderConsole.keyURL(forBaseURL: ElevenLabsASR.endpoint.absoluteString),
+            "no way to get an ElevenLabs key"
+        )
     }
 
     func testOnlyOpenAICompatibleHasAConfigurableBaseURL() {
-        XCTAssertTrue(PolishBackendSpec.for(.openAICompatible).hasConfigurableBaseURL)
-        XCTAssertFalse(PolishBackendSpec.for(.deepseek).hasConfigurableBaseURL)
-        XCTAssertFalse(PolishBackendSpec.for(.anthropic).hasConfigurableBaseURL)
-        XCTAssertFalse(PolishBackendSpec.for(.gemini).hasConfigurableBaseURL)
+        // Every branded backend is a fixed endpoint; only the generic
+        // "OpenAI-compatible" one lets the user point it anywhere.
+        for spec in PolishBackendSpec.all {
+            XCTAssertEqual(
+                spec.hasConfigurableBaseURL,
+                spec.backend == .openAICompatible,
+                "\(spec.backend) has the wrong base-URL configurability"
+            )
+        }
     }
 }
 
@@ -140,6 +249,8 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(settings.anthropicModel, "claude-3-5-haiku")
         XCTAssertEqual(settings.sessionAutoEndMinutes, 60)
         XCTAssertEqual(settings.deepseekModel, "deepseek-v4-flash", "missing field should take the default")
+        XCTAssertEqual(settings.elevenLabsModel, "scribe_v1", "missing field should take the default")
+        XCTAssertEqual(settings.asrBackend, .apple, "an engine added later must not disturb the saved one")
     }
 
     func testInvalidTargetLanguageClampsToDefault() throws {
