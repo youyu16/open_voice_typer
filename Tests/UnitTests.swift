@@ -202,6 +202,30 @@ final class PolishBackendSpecTests: XCTestCase {
         }
     }
 
+    /// The whole point of a separate slot is that configuring one engine never
+    /// disturbs another — including across the ASR/polish boundary, where a
+    /// reused slot would mean an ElevenLabs key overwriting an OpenAI one.
+    func testEveryEngineAndBackendKeySlotIsDistinct() {
+        let polishSlots = PolishBackendSpec.all.map(\.keychainKey)
+        let asrSlots: [KeychainStore.Key] = [.asrAPIKey, .asrElevenLabsKey]
+        let all = polishSlots + asrSlots
+        XCTAssertEqual(Set(all).count, all.count, "two engines share a Keychain slot")
+        XCTAssertEqual(Set(KeychainStore.Key.allCases.map(\.rawValue)).count,
+                       KeychainStore.Key.allCases.count,
+                       "two Keychain keys share a raw value")
+    }
+
+    func testElevenLabsIsAFirstClassASREngine() {
+        XCTAssertTrue(ProviderSettings.ASRBackend.allCases.contains(.elevenLabs))
+        XCTAssertEqual(ProviderSettings().elevenLabsModel, "scribe_v1")
+        XCTAssertFalse(ProviderSettings.ASRBackend.elevenLabs.hasConfigurableBaseURL,
+                       "Scribe is a fixed endpoint, not a base URL to point anywhere")
+        XCTAssertNotNil(
+            ProviderConsole.keyURL(forBaseURL: ElevenLabsASR.endpoint.absoluteString),
+            "no way to get an ElevenLabs key"
+        )
+    }
+
     func testOnlyOpenAICompatibleHasAConfigurableBaseURL() {
         // Every branded backend is a fixed endpoint; only the generic
         // "OpenAI-compatible" one lets the user point it anywhere.
@@ -225,6 +249,8 @@ final class SettingsMigrationTests: XCTestCase {
         XCTAssertEqual(settings.anthropicModel, "claude-3-5-haiku")
         XCTAssertEqual(settings.sessionAutoEndMinutes, 60)
         XCTAssertEqual(settings.deepseekModel, "deepseek-v4-flash", "missing field should take the default")
+        XCTAssertEqual(settings.elevenLabsModel, "scribe_v1", "missing field should take the default")
+        XCTAssertEqual(settings.asrBackend, .apple, "an engine added later must not disturb the saved one")
     }
 
     func testInvalidTargetLanguageClampsToDefault() throws {

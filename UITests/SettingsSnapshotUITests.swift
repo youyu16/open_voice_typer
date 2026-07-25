@@ -18,7 +18,7 @@ final class SettingsSnapshotUITests: XCTestCase {
         // Settings persist between runs, so pin speech-to-text to on-device:
         // its cloud rows are labelled the same as polish's ("Model", "API
         // Key", "Base URL") and would make the assertions below ambiguous.
-        app.buttons["On-device"].tap()
+        selectEngine("On-device", in: app)
 
         XCTAssertTrue(app.staticTexts["Model"].firstMatch.waitForExistence(timeout: 5),
                       "polish Model row missing")
@@ -61,7 +61,7 @@ final class SettingsSnapshotUITests: XCTestCase {
 
         // Cloud speech-to-text is configured by preset rather than by a
         // provider picker, so its menu is the equivalent surface to check.
-        app.buttons["Cloud"].tap()
+        selectEngine("Cloud (OpenAI-compatible)", in: app)
         app.buttons
             .matching(NSPredicate(format: "label BEGINSWITH 'Preset'"))
             .firstMatch
@@ -78,5 +78,33 @@ final class SettingsSnapshotUITests: XCTestCase {
         asrPresets.name = "settings-asr-presets"
         asrPresets.lifetime = .keepAlways
         add(asrPresets)
+        app.buttons["OpenAI"].tap() // dismiss the menu
+
+        // Scribe speaks its own protocol, so it is an engine rather than a
+        // preset: fixed endpoint, its own model list and its own key row.
+        selectEngine("ElevenLabs Scribe", in: app)
+        XCTAssertTrue(app.staticTexts["Model"].firstMatch.waitForExistence(timeout: 5),
+                      "Scribe has no Model row")
+        XCTAssertTrue(app.staticTexts["API Key"].firstMatch.waitForExistence(timeout: 5),
+                      "Scribe has no API Key row")
+        XCTAssertFalse(app.staticTexts["Base URL"].exists,
+                       "Scribe is a fixed endpoint and must not offer a Base URL field")
+
+        let scribe = XCTAttachment(screenshot: app.screenshot())
+        scribe.name = "settings-asr-elevenlabs"
+        scribe.lifetime = .keepAlways
+        add(scribe)
+    }
+
+    /// The engine picker is a menu button labelled "Engine, <selection>".
+    @MainActor
+    private func selectEngine(_ name: String, in app: XCUIApplication) {
+        app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH 'Engine,'"))
+            .firstMatch
+            .tap()
+        XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5),
+                      "\(name) is missing from the speech-to-text engine picker")
+        app.buttons[name].tap()
     }
 }

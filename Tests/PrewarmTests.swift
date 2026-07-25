@@ -72,6 +72,28 @@ final class PrewarmTests: XCTestCase {
         }
     }
 
+    /// Every cloud engine must get its handshake started while the user is
+    /// still speaking; the on-device one has no host and warms its model
+    /// instead. A new engine that warms nothing silently reintroduces the
+    /// post-speech handshake this all exists to remove.
+    func testEveryCloudASREngineHasAHostToWarm() {
+        for backend in ProviderSettings.ASRBackend.allCases {
+            var settings = ProviderSettings()
+            settings.asrBackend = backend
+            let origin: URL? = switch backend {
+            case .apple: nil
+            case .openAICompatible: ConnectionWarmer.origin(ofBaseURL: settings.asrBaseURL)
+            case .elevenLabs: KeyVerifier.Target.elevenLabs.origin
+            }
+            if backend == .apple {
+                XCTAssertNil(origin, "the on-device engine connects to nothing")
+            } else {
+                XCTAssertNotNil(origin, "\(backend) has no host to warm")
+            }
+        }
+        XCTAssertEqual(KeyVerifier.Target.elevenLabs.origin?.host(), "api.elevenlabs.io")
+    }
+
     // MARK: Warming behaviour
 
     func testWarmingIssuesAnUnauthenticatedHeadAndSkipsRepeats() async {

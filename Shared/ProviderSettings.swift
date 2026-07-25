@@ -7,13 +7,19 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     enum ASRBackend: String, Codable, CaseIterable, Sendable {
         case apple
         case openAICompatible
+        case elevenLabs
 
         var displayName: String {
             switch self {
-            case .apple: "Apple (on-device)"
-            case .openAICompatible: "OpenAI-compatible"
+            case .apple: "On-device"
+            case .openAICompatible: "Cloud (OpenAI-compatible)"
+            case .elevenLabs: "ElevenLabs Scribe"
             }
         }
+
+        /// Whether the engine is configured by base URL + model (the generic
+        /// OpenAI dialect) rather than being a fixed endpoint of its own.
+        var hasConfigurableBaseURL: Bool { self == .openAICompatible }
     }
 
     /// Order here is the order of the Settings picker. Raw values are what get
@@ -45,8 +51,13 @@ struct ProviderSettings: Codable, Equatable, Sendable {
     var asrBackend: ASRBackend = .apple
     var asrBaseURL: String = "https://api.openai.com/v1"
     var asrModel: String = "gpt-4o-transcribe"
+    /// Kept apart from `asrModel` for the same reason each polish backend owns
+    /// its model field: switching engines must not lose the other's setup.
+    var elevenLabsModel: String = "scribe_v1"
     /// ISO-639 hint for ASR; empty = auto-detect / current locale.
     var asrLanguage: String = ""
+
+    static let elevenLabsModels = ["scribe_v1", "scribe_v1_experimental"]
 
     var polishBackend: PolishBackend = .openAICompatible
     var polishBaseURL: String = "https://api.openai.com/v1"
@@ -99,6 +110,7 @@ struct ProviderSettings: Codable, Equatable, Sendable {
         asrBaseURL = try c.decodeIfPresent(String.self, forKey: .asrBaseURL) ?? defaults.asrBaseURL
         asrModel = try c.decodeIfPresent(String.self, forKey: .asrModel) ?? defaults.asrModel
         asrLanguage = try c.decodeIfPresent(String.self, forKey: .asrLanguage) ?? defaults.asrLanguage
+        elevenLabsModel = try c.decodeIfPresent(String.self, forKey: .elevenLabsModel) ?? defaults.elevenLabsModel
         polishBackend = try c.decodeIfPresent(PolishBackend.self, forKey: .polishBackend) ?? defaults.polishBackend
         polishBaseURL = try c.decodeIfPresent(String.self, forKey: .polishBaseURL) ?? defaults.polishBaseURL
         polishModel = try c.decodeIfPresent(String.self, forKey: .polishModel) ?? defaults.polishModel

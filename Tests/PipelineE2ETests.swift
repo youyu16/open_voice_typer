@@ -150,6 +150,40 @@ final class PipelineE2ETests: XCTestCase {
         }
     }
 
+    /// The ElevenLabs engine has to be reachable through the real pipeline —
+    /// its own key slot, its own endpoint, and its model reported to history —
+    /// not just as a provider in isolation.
+    func testElevenLabsEngineRunsThroughThePipeline() async throws {
+        var settings = ProviderSettings()
+        settings.asrBackend = .elevenLabs
+        settings.elevenLabsModel = "scribe_v1_experimental"
+        settings.polishBackend = .openAICompatible
+        settings.polishBaseURL = "https://llm.stub.test/v1"
+        KeychainStore.set("sk-11l-real", for: .asrElevenLabsKey)
+        // The OpenAI-compatible ASR slot must not be reached for.
+        KeychainStore.set("sk-wrong-slot", for: .asrAPIKey)
+        KeychainStore.set("sk-llm-test", for: .polishOpenAIKey)
+
+        StubURLProtocol.stub(host: "api.elevenlabs.io") { request, _ in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "xi-api-key"), "sk-11l-real")
+            return .init(body: Data(#"{"text":"um hello there"}"#.utf8))
+        }
+        StubURLProtocol.stub(host: "llm.stub.test") { _, _ in
+            .init(body: Data(#"{"choices":[{"message":{"content":"Hello there."}}]}"#.utf8))
+        }
+
+        let outcome = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .light)
+        XCTAssertEqual(outcome.rawText, "um hello there")
+        XCTAssertEqual(outcome.polishedText, "Hello there.")
+
+        // Raw style skips polish, so the engine name is the ASR model — that
+        // is what history shows for an ElevenLabs dictation.
+        let raw = try await DictationPipeline(settings: settings)
+            .run(wavData: try fixtureWAV(), style: .raw)
+        XCTAssertEqual(raw.engineName, "scribe_v1_experimental")
+    }
+
     private func fixtureWAV() throws -> Data {
         let bundle = Bundle(for: Self.self)
         guard let url = bundle.url(forResource: "hello", withExtension: "wav") else {

@@ -184,6 +184,7 @@ enum ProviderConsole {
         if host.contains("fireworks.ai") { return "https://fireworks.ai/account/api-keys" }
         if host.contains("deepinfra.com") { return "https://deepinfra.com/dash/api_keys" }
         if host.contains("lemonfox.ai") { return "https://www.lemonfox.ai/dashboard" }
+        if host.contains("elevenlabs.io") { return "https://elevenlabs.io/app/settings/api-keys" }
         if host.contains("z.ai") { return "https://z.ai/manage-apikey/apikey-list" }
         if host.contains("bigmodel.cn") { return "https://open.bigmodel.cn/usercenter/apikeys" }
         return nil

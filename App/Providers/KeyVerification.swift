@@ -9,6 +9,7 @@ enum KeyVerifier {
         case openAICompatible(baseURL: String)
         case anthropic
         case gemini
+        case elevenLabs
 
         /// The host this backend's requests connect to. Verification already
         /// has to know it, so connection warming reads it from here rather
@@ -21,6 +22,8 @@ enum KeyVerifier {
                 URL(string: "https://api.anthropic.com/")
             case .gemini:
                 URL(string: "https://generativelanguage.googleapis.com/")
+            case .elevenLabs:
+                URL(string: "https://api.elevenlabs.io/")
             }
         }
     }
@@ -42,6 +45,9 @@ enum KeyVerifier {
         case .gemini:
             request = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models")!)
             request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        case .elevenLabs:
+            request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/models")!)
+            request.setValue(key, forHTTPHeaderField: "xi-api-key")
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)

@@ -24,6 +24,7 @@ struct DictationPipeline: Sendable {
         switch settings.asrBackend {
         case .apple: "on-device"
         case .openAICompatible: settings.asrModel
+        case .elevenLabs: settings.elevenLabsModel
         }
     }
 
@@ -38,8 +39,13 @@ struct DictationPipeline: Sendable {
     /// here simply costs what it always did when the real request runs.
     func prewarm(style: Style) async {
         var origins: [URL?] = []
-        if case .openAICompatible = settings.asrBackend {
+        switch settings.asrBackend {
+        case .apple:
+            break // nothing to connect to; the model warm-up below covers it
+        case .openAICompatible:
             origins.append(ConnectionWarmer.origin(ofBaseURL: settings.asrBaseURL))
+        case .elevenLabs:
+            origins.append(KeyVerifier.Target.elevenLabs.origin)
         }
         if style.id != Style.raw.id {
             origins.append(PolishBackendSpec.for(settings.polishBackend).makeVerifyTarget(settings).origin)
@@ -135,6 +141,11 @@ struct DictationPipeline: Sendable {
 
     // MARK: Provider construction
 
+    /// Still a switch rather than a registry: the three engines share almost
+    /// nothing (on-device frameworks, an OpenAI dialect, and ElevenLabs' own
+    /// protocol), so a spec table would abstract over differences instead of
+    /// similarities. The polish side is a registry because its backends really
+    /// are the same client five times over.
     private func makeASRProvider() -> ASRProvider {
         switch settings.asrBackend {
         case .apple:
@@ -144,6 +155,11 @@ struct DictationPipeline: Sendable {
                 baseURL: settings.asrBaseURL,
                 model: settings.asrModel,
                 apiKey: { KeychainStore.get(.asrAPIKey) }
+            )
+        case .elevenLabs:
+            ElevenLabsASR(
+                model: settings.elevenLabsModel,
+                apiKey: { KeychainStore.get(.asrElevenLabsKey) }
             )
         }
     }
