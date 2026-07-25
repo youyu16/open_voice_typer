@@ -31,6 +31,9 @@ struct HomeView: View {
                 old && !new
             }
             .onAppear {
+                // Both wired here rather than in the model's initializer, so
+                // they belong to the instance SwiftUI actually kept.
+                model.connect()
                 model.onCompleted = { record in modelContext.insert(record) }
             }
             .alert("Dictation failed", isPresented: $model.showError) {
@@ -350,7 +353,17 @@ final class HomeViewModel {
 
     private let session = SessionController.shared
 
-    init() {
+    /// Subscribes this model to the mic level feed. Call from `onAppear`.
+    ///
+    /// Deliberately *not* done in `init`. `@State private var model =
+    /// HomeViewModel()` re-evaluates that initializer every time the view
+    /// struct is re-created, and SwiftUI keeps only the first instance — so an
+    /// `init` subscription hands `SessionController`'s single-slot callback to
+    /// an object that is about to be deallocated. Its `[weak self]` closure
+    /// then does nothing at all, and since HomeView sits inside the TabView,
+    /// one unrelated re-render was enough: the waveform and the record
+    /// button's pulse went dead for the rest of the launch.
+    func connect() {
         session.onUILevel = { [weak self] level in
             guard let self else { return }
             guard isRecording else {
