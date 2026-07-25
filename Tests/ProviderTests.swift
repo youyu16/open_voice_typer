@@ -65,15 +65,20 @@ final class ProviderTests: XCTestCase {
 
     /// Polish reshapes a transcript, it never reasons about one — and Gemini
     /// thinks by default, which puts seconds between the user finishing a
-    /// sentence and seeing it typed. Gemini 3.x spells the off-switch
-    /// `thinking_level`; the 2.5-era `thinking_budget` no longer exists there,
-    /// so sending it would silently leave thinking on.
-    func testGemini3PolishSpendsNothingOnThinking() async throws {
+    /// sentence and seeing it typed.
+    ///
+    /// The nesting is pinned to Google's own curl example. A first attempt put
+    /// `thinkingLevel` beside `thinkingConfig` rather than inside it, and the
+    /// API rejected every polish with a 400 — the shape only shows up against
+    /// a live key, so it is asserted here byte for byte.
+    func testGemini3AsksForMinimalThinkingInTheShapeGoogleDocuments() async throws {
         StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
             let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
-            let config = json["generation_config"] as? [String: Any]
-            XCTAssertEqual(config?["thinking_level"] as? String, "minimal")
-            XCTAssertNil(config?["thinking_config"], "thinking_budget is a 2.5-only field")
+            let config = json["generationConfig"] as? [String: Any]
+            let thinking = config?["thinkingConfig"] as? [String: Any]
+            XCTAssertEqual(thinking?["thinkingLevel"] as? String, "minimal")
+            XCTAssertNil(config?["thinkingLevel"], "the level goes inside thinkingConfig, not beside it")
+            XCTAssertNil(thinking?["thinkingBudget"], "3.x rejects a request carrying both")
             return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
         }
         let provider = GeminiLLM(model: "gemini-3.5-flash-lite", apiKey: { "sk-gem" }, session: session)
@@ -81,15 +86,13 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(output, "Hello there.")
     }
 
-    /// The 2.5 generation still takes a zero token budget — a user who pinned
-    /// an older model must keep the same latency win.
-    func testGemini25FlashStillUsesTheTokenBudgetDialect() async throws {
+    /// The 2.5 generation still takes a zero token budget, in the same object.
+    func testGemini25FlashStillUsesTheTokenBudget() async throws {
         StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
             let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
-            let config = json["generation_config"] as? [String: Any]
-            let thinking = config?["thinking_config"] as? [String: Any]
-            XCTAssertEqual(thinking?["thinking_budget"] as? Int, 0)
-            XCTAssertNil(config?["thinking_level"], "thinking_level is a 3.x-only field")
+            let thinking = (json["generationConfig"] as? [String: Any])?["thinkingConfig"] as? [String: Any]
+            XCTAssertEqual(thinking?["thinkingBudget"] as? Int, 0)
+            XCTAssertNil(thinking?["thinkingLevel"], "2.5 rejects a request carrying both")
             return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
         }
         let provider = GeminiLLM(model: "gemini-2.5-flash", apiKey: { "sk-gem" }, session: session)
@@ -98,12 +101,11 @@ final class ProviderTests: XCTestCase {
     }
 
     /// 2.5 Pro has a thinking floor and the non-thinking models reject the
-    /// field outright, so an unrecognized model is left on its defaults — a
-    /// faster polish is not worth a 400.
+    /// field outright, so an unrecognized model is left on its defaults.
     func testGeminiLeavesOtherModelsOnTheirDefaults() async throws {
         StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
             let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
-            XCTAssertNil(json["generation_config"])
+            XCTAssertNil(json["generationConfig"])
             return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
         }
         let provider = GeminiLLM(model: "gemini-2.5-pro", apiKey: { "sk-gem" }, session: session)
@@ -111,12 +113,52 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(output, "Hello there.")
     }
 
-    func testGeminiThinkingDialectIsChosenPerGeneration() {
-        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-3.6-flash"), .level("minimal"))
-        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-3.1-pro-preview"), .level("minimal"))
-        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-2.5-flash-lite"), .zeroBudget)
-        XCTAssertEqual(GeminiLLM.thinkingControl(for: "gemini-2.5-pro"), .unsupported)
-        XCTAssertEqual(GeminiLLM.thinkingControl(for: "some-future-model"), .unsupported)
+    /// Turning thinking off is an optimization and must never be why a
+    /// dictation fails. Google has already moved this field once, so a
+    /// rejected shape retries without it rather than surfacing "Dictation
+    /// failed" — the user gets their text, just a little slower.
+    func testARejectedThinkingFieldCostsLatencyNotTheDictation() async throws {
+        let attempts = AttemptLog()
+        StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, body in
+            let json = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            let carriedThinking = json["generationConfig"] != nil
+            attempts.record(carriedThinking)
+            guard carriedThinking else {
+                return .init(body: Data(#"{"candidates":[{"content":{"parts":[{"text":"Hello there."}]}}]}"#.utf8))
+            }
+            return .init(status: 400, body: Data(#"""
+            {"error":{"code":400,"message":"Invalid JSON payload received. Unknown name \"thinkingLevel\" at 'generation_config': Cannot find field.","status":"INVALID_ARGUMENT"}}
+            """#.utf8))
+        }
+        let provider = GeminiLLM(model: "gemini-3.5-flash-lite", apiKey: { "sk-gem" }, session: session)
+        let output = try await provider.polish(request)
+        XCTAssertEqual(output, "Hello there.")
+        XCTAssertEqual(attempts.carriedThinking, [true, false], "should retry exactly once, without the field")
+    }
+
+    /// A 400 that isn't about the thinking field must still fail — retrying
+    /// would only mask a bad key or a model that doesn't exist.
+    func testAnUnrelated400StillFails() async {
+        StubURLProtocol.stub(host: "generativelanguage.googleapis.com") { _, _ in
+            .init(status: 400, body: Data(#"{"error":{"message":"API key not valid"}}"#.utf8))
+        }
+        let provider = GeminiLLM(model: "gemini-3.5-flash-lite", apiKey: { "sk-bad" }, session: session)
+        do {
+            _ = try await provider.polish(request)
+            XCTFail("expected the error to surface")
+        } catch let PolishError.http(status, body) {
+            XCTAssertEqual(status, 400)
+            XCTAssertTrue(body.contains("API key not valid"))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    func testTheThinkingRejectionCheckIsSpecific() {
+        XCTAssertTrue(GeminiLLM.isThinkingFieldRejection(#"Unknown name \"thinkingLevel\" at 'generation_config'"#))
+        XCTAssertTrue(GeminiLLM.isThinkingFieldRejection("Cannot find field thinking_budget"))
+        XCTAssertFalse(GeminiLLM.isThinkingFieldRejection("API key not valid"))
+        XCTAssertFalse(GeminiLLM.isThinkingFieldRejection("model gemini-9 is not found"))
     }
 
     // MARK: ElevenLabs Scribe
@@ -229,4 +271,17 @@ final class ProviderTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+}
+
+/// Records whether each attempt carried the thinking field, from whatever
+/// queue URLSession delivers the stub on.
+private final class AttemptLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var attempts: [Bool] = []
+
+    func record(_ carriedThinking: Bool) {
+        lock.withLock { attempts.append(carriedThinking) }
+    }
+
+    var carriedThinking: [Bool] { lock.withLock { attempts } }
 }
